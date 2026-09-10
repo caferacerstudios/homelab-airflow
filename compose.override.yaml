@@ -1,0 +1,5 @@
+services:
+  airflow-scheduler:
+    volumes:
+      - /var/lib/sfz-airflow-ticket-test/requests:/opt/airflow/ticket-bridge/requests
+      - /var/lib/sfz-airflow-ticket-test/responses:/opt/airflow/ticket-bridge/responses:ro
