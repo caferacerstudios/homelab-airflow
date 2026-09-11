@@ -8,7 +8,7 @@ from airflow.timetables.trigger import CronTriggerTimetable
 @dag(
     dag_id='sfz_daily_article',
     schedule=CronTriggerTimetable('0 8 * * *', timezone='America/Los_Angeles'),
-    start_date=pendulum.datetime(2026, 9, 11, tz='America/Los_Angeles'),
+    start_date=pendulum.datetime(2026, 1, 1, tz='America/Los_Angeles'),
     catchup=False, max_active_runs=1, max_active_tasks=1, is_paused_upon_creation=True,
     default_args={'owner': 'laura', 'retries': 0}, tags=['seahawks', 'news', 'openai'],
     doc_md='One article per Seattle day. Research and generated prose are saved on wkr. Repeated runs reuse accepted content. The DAG publishes /var/lib/sfz-news/current; the next website build imports it. It does not build or deploy the site.',
