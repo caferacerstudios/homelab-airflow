@@ -260,8 +260,14 @@ class Installer:
         coverage_file = site["eventspy"]["coverage_file"]
         coverage = json.loads(read_file(self.here / "coverage" / coverage_file))
         games = payload.get("gamesRegular") or payload.get("games")
-        require(isinstance(games, list) and len(games) == 17 and len(coverage) == 17,
-                "Seattle schedule must contain the 17 reviewed regular-season games")
+        require(isinstance(games, list) and all(isinstance(row, dict) for row in games),
+                "Seattle schedule must contain a regular-season game array")
+        # The existing NFL normalizer includes a synthetic bye in gamesRegular.
+        # Count actual games here; the unchanged binder below verifies all 17 IDs.
+        regular_games = [row for row in games if row.get("bye") is not True and row.get("state") != "bye"]
+        require(len(regular_games) == 17 and len(coverage) == 17,
+                f"Seattle schedule has {len(regular_games)} game rows and {len(games) - len(regular_games)} bye rows; "
+                f"expected 17 games matching {len(coverage)} reviewed coverage rows")
         require({row.get("season") for row in coverage} == {payload.get("season")},
                 "Seattle snapshot season differs from reviewed coverage")
         manifest_path = schedule.parent / "manifest.json"

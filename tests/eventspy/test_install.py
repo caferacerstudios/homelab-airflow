@@ -222,6 +222,10 @@ class SeattleSnapshotTests(unittest.TestCase):
                                           "season_type": "regular", "home_team": {"abbreviation": row["homeTeamAbbreviation"]},
                                           "visitor_team": {"abbreviation": row["awayTeamAbbreviation"]}}
                                          for row in self.coverage]}
+        # The existing NFL normalizer includes its synthetic bye in gamesRegular.
+        self.bye = {"id": "2026-regular-11-bye", "season": 2026, "week": 11,
+                    "phase": "regular", "season_type": "regular", "state": "bye",
+                    "status": "bye", "bye": True, "homeTeam": None, "awayTeam": None}
         self.write()
 
     def write(self):
@@ -235,6 +239,25 @@ class SeattleSnapshotTests(unittest.TestCase):
         before = {path.name: path.read_bytes() for path in self.snapshot.iterdir()}
         self.installer.check_seattle_schedule(self.site)
         self.assertEqual({path.name: path.read_bytes() for path in self.snapshot.iterdir()}, before)
+
+    @unittest.skipUnless(shutil.which("node"), "Node fixture test; host preflight always validates bindings in the collector image")
+    def test_normalized_snapshot_with_bye_binds_all_games_without_changing_files(self):
+        self.payload["gamesRegular"].append(self.bye)
+        self.write()
+        self.assertEqual(len(self.payload["gamesRegular"]), 18)
+        before = {path.name: path.read_bytes() for path in self.snapshot.iterdir()}
+        self.installer.check_seattle_schedule(self.site)
+        self.assertEqual({path.name: path.read_bytes() for path in self.snapshot.iterdir()}, before)
+
+    def test_bye_cannot_replace_a_missing_real_game(self):
+        self.payload["gamesRegular"] = self.payload["gamesRegular"][1:] + [self.bye]
+        self.write()
+        self.assertEqual(len(self.payload["gamesRegular"]), 17)
+        host = FakeHost()
+        self.installer.host = host
+        with self.assertRaises(RuntimeError):
+            self.installer.check_seattle_schedule(self.site)
+        self.assertEqual(host.commands, [])
 
     @unittest.skipUnless(shutil.which("node"), "Node fixture test; host preflight always validates bindings in the collector image")
     def test_wrong_game_id_year_week_and_opponent_are_rejected(self):
