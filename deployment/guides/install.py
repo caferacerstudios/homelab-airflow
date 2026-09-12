@@ -65,9 +65,9 @@ print('GUIDES_ACTIVE_SITES=' + json.dumps(sites, separators=(',', ':')))
 def ensure_state_directories(sites: dict) -> list[dict]:
     sys.path.insert(0, str(HERE))
     import guides_core as runner
-    selected = [runner.site_settings(site) for _, site in sorted(sites.items()) if site['enabled'] and runner.guide_enabled(site['slug'])]
+    selected = [runner.site_settings(site) for _, site in sorted(sites.items()) if site['enabled']]
     if not selected:
-        raise RuntimeError('No teams are enabled for guides; nothing was installed')
+        raise RuntimeError('No active teams are enabled; nothing was installed')
     # Check every selected team and existing root before creating any new root.
     for site in selected:
         runtime = runner.runtime_for(site)
@@ -241,14 +241,14 @@ def main() -> int:
     check_owned(PROJECT, directory=True)
     for name in ("refresh_guides.py", "ssh_entrypoint.py", "guides_core.py"):
         check_owned(HERE / name)
-    for name in ("sfz_game_guides.py", "sfz_guides_hook.py", "fan_zone_guide_config.py"):
+    for name in ("sfz_game_guides.py", "sfz_guides_hook.py"):
         check_owned(PROJECT / "dags" / name)
     check_owned(PROJECT / "config" / "game-guides.json")
     sites = ensure_state_directories(load_active_sites())
     private_key = install_key()
     configure_connection(private_key)
     verify_airflow(sites)
-    print("Installation complete. The new DAG remains paused by default. Review a manual publication and preview before enabling it.")
+    print("Installation complete. This command did not change the DAG pause state. Review a manual publication and preview before scheduled use.")
     print("Existing DAG states, connections, pools, website files, and current snapshots were retained.")
     return 0
 
