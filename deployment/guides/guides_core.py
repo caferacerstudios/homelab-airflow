@@ -48,14 +48,10 @@ def iso(now: datetime) -> str:
 
 def load_config(path: Path = POLICY) -> dict:
     config = load_object(path)
-    expected = {'enabled_sites', 'model', 'horizon_days', 'max_games_per_run', 'refresh_days',
+    expected = {'model', 'horizon_days', 'max_games_per_run', 'refresh_days',
                 'max_nfl_age_hours', 'max_search_calls_per_game'}
     if set(config) != expected:
         raise ValueError('Guide policy fields differ from the reviewed configuration')
-    sites = config['enabled_sites']
-    if (not isinstance(sites, list) or len(sites) != len(set(sites))
-            or any(not isinstance(slug, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,39}', slug) for slug in sites)):
-        raise ValueError('Guide policy needs unique explicit team slugs')
     if not isinstance(config['model'], str) or not re.fullmatch(r'gpt-[a-zA-Z0-9.-]+', config['model']):
         raise ValueError('Guide model is invalid')
     for field, low, high in [('horizon_days', 1, 30), ('max_games_per_run', 1, 6),
@@ -64,10 +60,6 @@ def load_config(path: Path = POLICY) -> dict:
         if type(config[field]) is not int or not low <= config[field] <= high:
             raise ValueError(f'Guide policy {field} must be between {low} and {high}')
     return config
-
-
-def guide_enabled(slug: str) -> bool:
-    return slug in load_config()['enabled_sites']
 
 
 @contextmanager
@@ -101,8 +93,8 @@ def site_settings(site: dict, settings_path: Path | None = None) -> dict:
         raise ValueError('Task news destination differs from the installed host registry')
     if runtime_for(selected) != runtime_for(registered):
         raise ValueError('Guide destination differs from the installed host registry')
-    if not selected['enabled'] or not guide_enabled(selected['slug']):
-        raise ValueError('Guide collection is not enabled for this team')
+    if not selected['enabled']:
+        raise ValueError('Guide collection requires an enabled active team')
     return selected
 
 
@@ -131,7 +123,7 @@ def source_commit() -> str:
     if root.resolve() != PROJECT.resolve():
         raise ValueError('Guide source must be its own Airflow Git checkout')
     paths = ['deployment/guides', 'config/game-guides.json', 'deployment/news/news_core.py',
-             'deployment/roster/refresh_roster.py', 'dags/fan_zone_guide_config.py',
+             'deployment/roster/refresh_roster.py',
              'dags/fan_zone_config.py', 'dags/fan_zone_photo_credits.py']
     if command(['git', '-C', str(PROJECT), 'status', '--porcelain', '--', *paths]):
         raise ValueError('Commit or resolve guide runner changes before collecting; no source was changed')
@@ -248,8 +240,8 @@ def read_schedule(site: dict, config: dict, now: datetime) -> dict:
 def preflight(site: dict, runtime: Path, *, require_runtime=True) -> str:
     commit = source_commit()
     config = load_config()
-    if not guide_enabled(site['slug']):
-        raise ValueError('Guide research is disabled in the separate guide policy')
+    if not site['enabled']:
+        raise ValueError('Guide collection requires an enabled active team')
     if Path(runtime) != runtime_for(site):
         raise ValueError('Guide output must use the exact isolated registered runtime')
     for name in ('guides_core.py', 'refresh_guides.py', 'ssh_entrypoint.py'):

@@ -6,7 +6,7 @@ Source added in this change is not evidence that the host installer has run, res
 
 ## Flow and existing system boundaries
 
-`sfz_game_guides` creates a named `refresh_guides_<slug>` task followed by `save_run_receipt_<slug>` for each team enabled in both `fan_zone_active_sites` and `config/game-guides.json`. The separate guide policy initially enables only `seahawks`; other active team pipelines keep their existing configuration.
+`sfz_game_guides` creates a named `refresh_guides_<slug>` task followed by `save_run_receipt_<slug>` for every enabled team in `fan_zone_active_sites`, using the same `active_sites()` helper as the other team DAGs. The Variable is the team-selection authority; `config/active-sites.json` is the shared fallback when it is absent. There is no separate guide activation list. `config/game-guides.json` controls the model and research workload only.
 
 The refresh task uses the dedicated `sfz_guides_host` SSH connection. Its Ed25519 key is restricted to `deployment/guides/ssh_entrypoint.py`. The entrypoint accepts only a bounded encoded `check` or `refresh` request; a request cannot select an arbitrary shell command, runtime destination or credential path.
 
@@ -20,7 +20,7 @@ The host reads the existing shared team registration in `/opt/fanzone-shared/set
 | Vikings | `/var/lib/vikingsfz-guides/current` |
 | Chiefs | `/var/lib/chiefsfz-guides/current` |
 
-Only enabled guide teams are installed and scheduled. Denver's established `boncosfz` spelling is preserved. The runtime is separate from website checkouts, served releases and all other producer roots.
+Only enabled active teams are installed and scheduled. Denver's established `boncosfz` spelling is preserved. The runtime is separate from website checkouts, served releases and all other producer roots.
 
 ## Schedule and workload
 
@@ -34,17 +34,17 @@ Only enabled guide teams are installed and scheduled. Denver's established `bonc
 | Work task / SSH timeout | 35 minutes / 33 minutes |
 | Receipt task timeout | Two minutes |
 | Pool | Existing `default_pool` |
-| Initial activated team | Seahawks |
+| Team selection | All enabled teams in `fan_zone_active_sites` |
 
 Global Airflow parallelism still applies. This DAG may queue behind other work; its clock time is not a guaranteed completion time. It does not change other DAGs' schedules, pools or pause states.
 
-The independent `config/game-guides.json` controls enabled teams, research horizon, refresh interval, per-run game budget and model. The initial policy looks ahead 14 days and limits each team run to three games. Near-term games receive priority; missing later regular-season games can be filled within the same bounded budget. Completed games and existing historical guide content are retained. A single run is not represented as researching every remaining game.
+The independent `config/game-guides.json` controls research horizon, refresh interval, per-run game budget and model. The policy looks ahead 14 days and limits each team run to three games. With five active teams, a run can research up to 15 games; work remains serialized with one active task. Near-term games receive priority; missing later regular-season games can be filled within the same bounded budget. Completed games and existing historical guide content are retained. A single run is not represented as researching every remaining game.
 
 Only official schedule identities select games. Research must distinguish dated event announcements from general venue guidance. Sounder, event times, closures, watch parties, broadcast availability and regional streaming restrictions require appropriate evidence. Unconfirmed items remain unknown or absent. Source URLs and timestamps accompany accepted facts; retrieval time is not an announcement date.
 
 ## Install the new host handoff
 
-First review and merge the Airflow and website changes through the normal repository workflow. On `wkr`, update the clean Airflow checkout to the reviewed revision without overwriting local edits. Review `config/game-guides.json` and leave the initial guide activation limited to Seattle.
+First review and merge the Airflow and website changes through the normal repository workflow. On `wkr`, update the clean Airflow checkout to the reviewed revision without overwriting local edits. Review the shared active-site Variable and the research limits in `config/game-guides.json`.
 
 Run as `laurawkr`, without running the whole installer under `sudo`:
 
@@ -53,7 +53,7 @@ cd /home/laurawkr/homelab-airflow
 python3 -B deployment/guides/install.py
 ```
 
-The installer checks registered teams, source and input prerequisites before preparing its guide runtime, generates or reuses only `secrets/sfz_guides_ed25519`, appends its restricted public-key entry when absent and configures only `sfz_guides_host`. It verifies the actual Airflow DAG graph and performs a source-free SSH check for each guide-enabled team.
+The installer checks every enabled active team's registration, source and input prerequisites before preparing any new guide runtime. It generates or reuses only `secrets/sfz_guides_ed25519`, appends its restricted public-key entry when absent and configures only `sfz_guides_host`. It verifies the actual Airflow DAG graph and performs a source-free SSH check for each enabled active team.
 
 The installer neither calls the research provider nor publishes a snapshot. It does not unpause or trigger any DAG. It does not change Docker Compose, nginx, Cloudflare, existing provider settings, other SSH connections, the active-site Variable or existing snapshots.
 
@@ -77,7 +77,7 @@ This example reads the checked-in fallback. Use the live Variable's selected sit
 
 ## First research publication and website preview
 
-After installation, unpause `sfz_game_guides`, trigger one manual run in the Airflow UI and inspect both Seattle tasks. Airflow also requires an unpaused DAG to execute manual tasks. Check for an already queued or running scheduled run before triggering another. If preview review is still pending, pause the DAG after the run finishes. This run makes paid OpenAI requests; the source-free check above does not.
+After installation, unpause `sfz_game_guides`, trigger one manual run in the Airflow UI and inspect each team's refresh and receipt tasks. The five configured enabled teams produce ten tasks. Airflow also requires an unpaused DAG to execute manual tasks. Check for an already queued or running scheduled run before triggering another. If preview review is still pending, pause the DAG after the run finishes. This run makes paid OpenAI requests; the source-free check above does not.
 
 The completed snapshot contains:
 
@@ -161,7 +161,32 @@ clear EventSpy tasks as part of this guide repair; that pipeline has separate
 receipt semantics. This change does not install services, rebuild a website or
 alter other pipelines' data.
 
-A malformed activation policy stops this DAG instead of enabling every active team. Enabling a team for other pipelines does not enable its guide research. Adding guide teams requires the separate policy entry, approved existing host registration, usable team NFL input and guide installer checks.
+### Upgrade from Seattle-only guide activation
+
+The initial implementation added a second `enabled_sites: ["seahawks"]` filter.
+That filter and its helper have been removed so team selection matches the other
+DAGs. Before updating this deployed source, pause only `sfz_game_guides` and let
+any running guide task finish. Update the normal Airflow checkout, then rerun
+`python3 -B deployment/guides/install.py` as `laurawkr`, without a sudo prefix.
+This prepares and checks all enabled teams' guide roots and reuses the dedicated
+connection. The installer preserves the current pause state; it does not pause
+an existing unpaused DAG for you.
+
+After installation checks pass, unpause this DAG and start a fresh manual run.
+An older run can still show its original Seattle-only DAG version. If a team
+fails installation checks, correct its registered input or runtime prerequisite
+before running the expanded DAG. A newly enabled active team also needs its
+registered host setup and guide runtime prepared before collection.
+
+Removing the obsolete policy field changes evidence-cache identities once.
+Completed run snapshots and fresh accepted guides still reuse normally, but an
+eligible failed draft from the old policy may need new research and writing.
+The per-game limit remains one research request and one writing request, with no
+automatic repair loop. Future team activation edits occur only in the shared
+Variable and do not change this research policy.
+
+Malformed research policy stops host collection. Registered identity and output
+paths are still checked independently before any team's guide data is written.
 
 If generated guides need to stop appearing, omit `FAN_ZONE_GUIDES_ENABLED=1` from the next reviewed build and use the existing deployment workflow. Pausing the DAG stops future scheduled research, but it does not rewrite already deployed static HTML. Retain snapshots and receipts for inspection rather than deleting a lock or recursively changing `/var/lib` permissions.
 
@@ -175,6 +200,10 @@ python3 -m pytest -q \
   tests/test_guides_hook.py tests/test_guides_ssh.py tests/test_guides_install.py
 ```
 
-Producer tests cover payload identity, evidence validation, bounded selection and publication behavior separately. The orchestration tests exercise the actual paused Airflow graph and Pacific DST schedule, activation intersection, receipt isolation and restricted SSH command grammar without live source requests. Host installation and rendered preview remain deployment checks to perform on `wkr`.
+Producer tests cover payload identity, evidence validation, bounded selection and publication behavior separately. The orchestration tests exercise the actual paused Airflow graph and Pacific DST schedule, shared active-site selection, receipt isolation and restricted SSH command grammar without live source requests. Host installation and rendered preview remain deployment checks to perform on `wkr`.
+
+The shared-active-team correction passed all 56 guide tests under Airflow 3.3.1,
+including the five-team/ten-task graph, disabled-team behavior, existing citation
+and event-evidence checks, and installer preflight failure preserving all state.
 
 Local validation on September 12, 2026 passed 32 tests and 38 subtests under Airflow 3.3.1 with SSH provider 6.0.1. A separate integration check used mocked research responses with the real producer, verified NFL fixture files, immutable publication, same-run reuse, the website importer and a full 157-page Astro build. The generated game-page HTML contained the guide and viewing information. This was a fixture test, not a live research run or host deployment.

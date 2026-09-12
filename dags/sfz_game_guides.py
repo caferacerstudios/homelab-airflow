@@ -1,4 +1,4 @@
-"""Research game-day and viewing guides in a separate, opt-in publication."""
+"""Research game-day and viewing guides for every enabled active team."""
 from datetime import timedelta
 
 import pendulum
@@ -17,8 +17,9 @@ from airflow.timetables.trigger import CronTriggerTimetable
     default_args={"owner": "laura", "retries": 0},
     tags=["fan-zone", "game-day", "where-to-watch", "guides"],
     doc_md="""Research verified regular-season game-day and viewing information at
-    04:45 Pacific. The independent config/game-guides.json activation list is
-    intersected with fan_zone_active_sites; only Seattle is initially activated.
+    04:45 Pacific. Read fan_zone_active_sites at DAG parsing and show a named
+    research task and receipt task for each enabled team, like the other DAGs.
+    config/game-guides.json controls the research model and per-team workload.
     Each team publishes validated files under its own /var/lib/<prefix>-guides/current
     and returns a receipt. Host work uses the dedicated restricted sfz_guides_host
     SSH connection and existing OpenAI credential. The runner limits research to
@@ -32,8 +33,7 @@ from airflow.timetables.trigger import CronTriggerTimetable
 )
 def sfz_game_guides():
     from fan_zone_tasks import active_sites
-    from fan_zone_guide_config import guide_sites
-    sites = guide_sites(active_sites())
+    sites = active_sites()
 
     @task(execution_timeout=timedelta(minutes=35))
     def refresh_guides(site):

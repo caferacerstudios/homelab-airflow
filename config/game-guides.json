@@ -1,5 +1,4 @@
 {
-  "enabled_sites": ["seahawks"],
   "model": "gpt-5.4-mini",
   "horizon_days": 14,
   "max_games_per_run": 3,
