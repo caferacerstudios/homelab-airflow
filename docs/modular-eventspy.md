@@ -15,7 +15,7 @@ The `boncosfz` spelling follows the existing Broncos news directory convention. 
 
 The collector is based on the deployed `/app/season-collector.mjs` exported from `seahawksfanzone-eventspy-season:1`. The existing browser image is reused by its reviewed image ID; no image is rebuilt or pulled. The new source files are mounted read-only into that image. The old image, runner and collector service remain available for rollback.
 
-Seattle snapshots retain the deployed JSON fields, formatting and public path. No `team` field is added to public ticket snapshots. Team identity lives in the configuration, output directory and run receipts.
+Snapshots with all four marketplace links retain the deployed `1.0.0` JSON fields, formatting and public path. Snapshots with a genuinely missing marketplace link use `1.1.0` and represent that link as `null`; nonempty unsafe links still fail. See [the scoped missing-link repair](eventspy-missing-provider-links.md) for the consumer-first rollout. No `team` field is added to public ticket snapshots. Team identity lives in the configuration, output directory and run receipts.
 
 Before opening a browser or fetching an event, the collector binds reviewed URLs to genuine schedule game IDs. It skips completed games and games whose confirmed kickoff has passed, retaining their existing JSON and price history unchanged. A stale cached `Scheduled` status therefore cannot keep collecting after a confirmed kickoff. Unknown kickoff times are not treated as midnight starts. Postponed/rescheduled games and mismatched dates are reported for review. Failed or unresolved games keep previous published files.
 

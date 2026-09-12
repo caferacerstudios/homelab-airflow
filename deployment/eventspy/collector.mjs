@@ -1,4 +1,4 @@
-/** Modular wrapper around the deployed Playwright collector. Public JSON stays v1.0.0. */
+/** Modular Playwright wrapper: v1.1.0 permits explicitly missing provider links. */
 import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -128,19 +128,17 @@ function mergeHistory(priceHistory) {
     );
 }
 function providerLinks(event) {
-  const links = {
-    ticketmaster:
-      safeProviderUrl(event.ticketmasterUrl),
-    stubhub:
-      safeProviderUrl(event.stubhubUrl),
-    vividseats:
-      safeProviderUrl(event.vividseatsUrl),
-    seatgeek:
-      safeProviderUrl(event.seatgeekUrl)
-  };
-  if (Object.values(links).some(value => !value)) {
-    throw new Error("invalid provider URL");
+  const links = {};
+  for (const market of MARKETS) {
+    const raw = event[`${market}Url`];
+    if (raw == null || raw === "") {
+      links[market] = null;
+      continue;
+    }
+    links[market] = typeof raw === "string" ? safeProviderUrl(raw) : null;
+    if (!links[market]) throw new Error(`invalid ${market} provider URL`);
   }
+  if (!Object.values(links).some(Boolean)) throw new Error("no usable provider URLs");
   return links;
 }
 async function atomicWrite(file, value) {
@@ -207,6 +205,7 @@ export async function fetchEvent(page, sourceEventId) {
 export function buildSnapshot(row, payload, now, site) {
   const event = payload.event;
   const title = validateEventIdentity(site, row, event);
+  const links = providerLinks(event);
   const history =
     mergeHistory(
       payload.history?.priceHistory
@@ -223,7 +222,7 @@ export function buildSnapshot(row, payload, now, site) {
   const seven =
     cents(event.sevenDayLowest);
   return {
-    schemaVersion: "1.0.0",
+    schemaVersion: Object.values(links).includes(null) ? "1.1.0" : "1.0.0",
     source: "eventspy",
     currency: "USD",
     gameId:
@@ -286,8 +285,7 @@ export function buildSnapshot(row, payload, now, site) {
       atSevenDayLow:
         current === seven
     },
-    providerLinks:
-      providerLinks(event),
+    providerLinks: links,
     history
   };
 }
@@ -388,6 +386,9 @@ export async function runCollector(config, dependencies = {}) {
         result(row, "succeeded", "EVENTSPY_COLLECTION_SUCCESS", {
           currentLowestCents: snapshot.summary.currentLowestCents,
           historyPoints: snapshot.history.length, cached: Boolean(reservation.cached),
+          ...(snapshot.schemaVersion === "1.1.0" ? {
+            missingProviders: MARKETS.filter(market => snapshot.providerLinks[market] === null),
+          } : {}),
         });
       } catch (error) { result(row, "failed", "EVENTSPY_COLLECTION_FAILED", { error: String(error?.message || error).slice(0, 180) }); }
       if (page) await page.waitForTimeout(250).catch(() => {});
