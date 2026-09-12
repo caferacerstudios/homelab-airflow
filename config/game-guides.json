@@ -1,0 +1,9 @@
+{
+  "enabled_sites": ["seahawks"],
+  "model": "gpt-5.4-mini",
+  "horizon_days": 14,
+  "max_games_per_run": 3,
+  "refresh_days": 1,
+  "max_nfl_age_hours": 72,
+  "max_search_calls_per_game": 6
+}
