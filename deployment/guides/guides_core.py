@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 import hashlib
 import ipaddress
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -30,6 +31,8 @@ FILES = ('game-day-guides.json', 'watch-guide.json')
 PROMPT_VERSION = 'fan-zone-guides-v1'
 # Version writing separately so a rejected v1 draft does not force new research.
 WRITING_STAGE = 'guide-citations-v2'
+VALIDATION_VERSION = 'guide-event-evidence-v1'
+LOGGER = logging.getLogger(__name__)
 for folder in (PROJECT / 'deployment/news', PROJECT / 'deployment/roster', PROJECT / 'dags'):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
@@ -371,6 +374,15 @@ def validate_schema(value, schema: dict, path='draft') -> None:
             validate_schema(child, schema['items'], f'{path}[{index}]')
 
 
+class UnconfirmedEventFact(ValueError):
+    """A well-formed candidate lacks the required matching event evidence."""
+
+
+def requires_event_evidence(field: str, row: dict) -> bool:
+    return (field in ('alerts', 'timeline', 'tailgates', 'watchParties', 'localTv', 'streams', 'national')
+            or (field == 'transportation' and re.search(r'\bsounder\b', str(row), re.I) is not None))
+
+
 def validate_fact(row: dict, source_map: dict, game: dict, *, event_only=False) -> tuple[dict, list[str]]:
     if not isinstance(row, dict):
         raise ValueError('Guide facts must be structured objects')
@@ -381,11 +393,8 @@ def validate_fact(row: dict, source_map: dict, game: dict, *, event_only=False) 
     scope = row.get('scope')
     if scope not in ('event-specific', 'standing-policy'):
         raise ValueError('Guide facts must distinguish dated event evidence from standing policy')
-    if scope == 'event-specific':
-        if not game['date'] or row.get('eventDate') != game['date']:
-            raise ValueError('Event-specific evidence must match the exact canonical game date')
-    elif row.get('eventDate') is not None or event_only:
-        raise ValueError('This claim needs date-specific event confirmation, not a generic policy page')
+    # Validate prose before deciding eligibility: malformed candidates must not
+    # become harmless omissions just because their event evidence is absent.
     result = {}
     for key, value in row.items():
         if key in EVIDENCE:
@@ -398,7 +407,50 @@ def validate_fact(row: dict, source_map: dict, game: dict, *, event_only=False) 
             result[key] = [text(item, maximum=500) for item in value]
         else:
             result[key] = text(value)
+    if scope == 'event-specific':
+        if not game['date'] or row.get('eventDate') != game['date']:
+            raise UnconfirmedEventFact('Event-specific evidence must match the exact canonical game date')
+    elif row.get('eventDate') is not None or event_only:
+        raise UnconfirmedEventFact('This claim needs date-specific event confirmation, not a generic policy page')
     return result, ids
+
+
+def supported_draft(draft: dict, sources: list[dict], game: dict) -> tuple[dict, list[dict]]:
+    """Omit unconfirmed candidates without upgrading or rewriting their evidence.
+
+    The cached writer response remains intact. The resulting candidate must
+    still pass make_records, including its minimum useful-content requirement.
+    """
+    validate_schema(draft, DRAFT_SCHEMA)
+    source_map = {source['id']: source for source in sources}
+    if len(source_map) != len(sources) or any(not valid_url(source['url']) for source in sources):
+        raise ValueError('Invalid retrieved guide source registry')
+    candidate, omitted = deepcopy(draft), []
+    for field in ('summary', 'alerts', 'transportation', 'parking', 'timeline', 'tailgates',
+                  'watchParties', 'stadiumTips', 'localTv', 'streams', 'national'):
+        singleton = field in ('summary', 'national')
+        value = draft[field]
+        if value is None:
+            continue
+        if not singleton and len(value) > (8 if field in ('localTv', 'streams') else 12):
+            raise ValueError(f'Guide {field} must be a bounded array')
+        if not singleton:
+            candidate[field] = []
+        for index, row in [(None, value)] if singleton else enumerate(value):
+            label = field if singleton else f'{field}[{index}]'
+            try:
+                validate_fact(row, source_map, game, event_only=requires_event_evidence(field, row))
+            except UnconfirmedEventFact as exc:
+                omitted.append({'field': label, 'reason': str(exc),
+                                **{key: deepcopy(row[key]) for key in EVIDENCE}})
+                if singleton:
+                    candidate[field] = None
+            except ValueError as exc:
+                raise ValueError(f'Guide {label}: {exc}') from exc
+            else:
+                if not singleton:
+                    candidate[field].append(deepcopy(row))
+    return candidate, omitted
 
 
 def make_records(draft: dict, sources: list[dict], game: dict, site: dict, now: datetime) -> tuple[dict, dict, dict]:
@@ -431,10 +483,7 @@ def make_records(draft: dict, sources: list[dict], game: dict, site: dict, now: 
             raise ValueError(f'Guide {field} must be a bounded array')
         guide[field] = []
         for index, row in enumerate(values):
-            event_only = field in ('alerts', 'timeline', 'tailgates', 'watchParties')
-            # A generic Sounder information page never establishes game service.
-            if field == 'transportation' and re.search(r'\bsounder\b', str(row), re.I):
-                event_only = True
+            event_only = requires_event_evidence(field, row)
             clean, ids = accept(row, field, event_only, index)
             clean['sourceUrl'] = source_map[ids[0]]['url']
             if field == 'tailgates':
@@ -563,8 +612,14 @@ def generate(directory: Path, key: str, config: dict, game: dict, site: dict, no
     }, key, call)
     draft = json.loads(response_text(writing))
     validate_schema(draft, writing_schema)
+    draft, omitted = supported_draft(draft, sources, game)
+    validation = {'validationVersion': VALIDATION_VERSION, 'event': game, 'omittedFacts': omitted}
+    atomic_json(directory / 'validation.json', validation)
+    for entry in omitted:
+        LOGGER.warning('Guide %s: omitted %s: %s', game['gameId'], entry['field'], entry['reason'])
     guide, watch, evidence = make_records(draft, sources, game, site, now)
     evidence.update({'promptVersion': PROMPT_VERSION, 'writingVersion': WRITING_STAGE,
+                     'validationVersion': VALIDATION_VERSION, 'omittedFacts': omitted,
                      'event': game, 'checkedAt': iso(now),
                      'responseIds': [research.get('id'), writing.get('id')],
                      'openaiRequestCount': count + extra,

@@ -125,6 +125,42 @@ tasks run. No installer rerun, container restart, cache deletion or website buil
 is needed for this correction. Review the first accepted snapshot before using
 it in a website build.
 
+### Unconfirmed event evidence in a draft
+
+The writer can return a cited standing policy in an event-only section, such as
+`alerts[1]`. A generic policy is not a confirmed alert for the selected game.
+The collector now removes individually unconfirmed candidates before validating
+the complete guide. It never changes their scope, copies in the game date, or
+moves their prose into a different section to make them pass.
+
+This applies to alerts, timelines, tailgates, watch parties, Sounder guidance and
+broadcasts that lack required event evidence, and to candidates whose evidence
+date does not match the canonical game date. A standing-policy candidate with a
+non-null event date is also omitted rather than having that date erased.
+Source IDs, URLs, prose and schema
+must still be valid. Invalid or duplicate citations and malformed content fail
+the run. Publication still requires a supported summary and at least two useful
+accepted items citing at least two pages. Insufficient remaining content fails
+the run and preserves the previous publication.
+
+Each omission is logged by game and field/index, without logging the prose.
+`evidence/<cache-key>/validation.json` records the reason and supplied evidence
+metadata, including when the remaining-content check fails. An accepted draft's
+`evidence.json` also includes `omittedFacts` and the validation version. The raw
+research and writer request/response files are retained unchanged.
+
+The research prompt, writer prompt, schema and cache stages are unchanged by this
+correction. An eligible cached failed draft can therefore be checked again with
+zero new provider requests. Uncached games or a changed research day/event/policy
+retain the normal request budget. No automatic model repair request is added.
+
+After merging and pulling this fix into the normal Airflow checkout, clear the
+failed guide refresh task with its downstream receipt task, keeping the DAG
+unpaused while they execute. Read the omission warnings and the receipt. Do not
+clear EventSpy tasks as part of this guide repair; that pipeline has separate
+receipt semantics. This change does not install services, rebuild a website or
+alter other pipelines' data.
+
 A malformed activation policy stops this DAG instead of enabling every active team. Enabling a team for other pipelines does not enable its guide research. Adding guide teams requires the separate policy entry, approved existing host registration, usable team NFL input and guide installer checks.
 
 If generated guides need to stop appearing, omit `FAN_ZONE_GUIDES_ENABLED=1` from the next reviewed build and use the existing deployment workflow. Pausing the DAG stops future scheduled research, but it does not rewrite already deployed static HTML. Retain snapshots and receipts for inspection rather than deleting a lock or recursively changing `/var/lib` permissions.
