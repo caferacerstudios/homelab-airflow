@@ -16,7 +16,12 @@
     },
     "slug": "seahawks",
     "website_root": "/home/laurawkr/seahawksfanzone",
-    "timezone": "America/Los_Angeles"
+    "timezone": "America/Los_Angeles",
+    "eventspy": {
+      "output_dir": "/var/lib/sfz-eventspy-mirror/dev/public",
+      "coverage_file": "seahawks.json",
+      "schedule_file": "/var/lib/sfz-nfl/current/seahawks.json"
+    }
   },
   "broncos": {
     "enabled": true,
@@ -35,6 +40,11 @@
     },
     "slug": "broncos",
     "website_root": "/home/laurawkr/templatefanzone",
-    "timezone": "America/Los_Angeles"
+    "timezone": "America/Los_Angeles",
+    "eventspy": {
+      "output_dir": "/var/lib/boncosfz-eventspy-mirror/dev/public",
+      "coverage_file": "broncos.json",
+      "schedule_file": "/var/lib/fanzone-eventspy/schedules/broncos.json"
+    }
   }
 }

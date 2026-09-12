@@ -1,4 +1,6 @@
-"""Shared news-site configuration for the Airflow Variable and host requests."""
+"""Shared active-site configuration for Airflow and restricted host requests."""
+from datetime import datetime, timedelta
+import hashlib
 import json
 from pathlib import PurePosixPath
 import re
@@ -22,9 +24,9 @@ def validate_site(slug, site):
         raise ValueError("Site slug does not match its key")
     allowed = {"slug", "enabled", "name", "city", "abbreviation", "balldontlie_team_id",
                "website_root", "news_snapshot_dir", "news_photos_dir", "source_domains",
-               "prompts", "timezone", "division"}
+               "prompts", "timezone", "division", "eventspy"}
     if set(site) - allowed:
-        raise ValueError(f"{slug}: unsupported news-site configuration fields")
+        raise ValueError(f"{slug}: unsupported site configuration fields")
     result = dict(site, slug=slug)
     for field in ("name", "city"):
         result[field] = text(site.get(field), field)
@@ -66,6 +68,8 @@ def validate_site(slug, site):
     ZoneInfo(result["timezone"])
     if "division" in site and site["division"] not in [f"{c} {d}" for c in ("AFC", "NFC") for d in ("East", "West", "North", "South")]:
         raise ValueError(f"{slug}: invalid division")
+    if "eventspy" in site:
+        result["eventspy"] = validate_eventspy(slug, site["eventspy"])
     if len(json.dumps(result).encode()) > 23000:
         raise ValueError(f"{slug}: configuration is too large")
     return result
@@ -87,4 +91,50 @@ def validate_sites(value):
         if path in owners:
             raise ValueError(f"{slug} and {owners[path]} share news output; each team needs its own directory")
         owners[path] = slug
+    ticket_owners = {}
+    for slug, site in sites.items():
+        if "eventspy" not in site:
+            continue
+        path = site["eventspy"]["output_dir"]
+        if path in ticket_owners:
+            raise ValueError(f"{slug} and {ticket_owners[path]} share ticket output")
+        ticket_owners[path] = slug
     return sites
+
+
+def validate_eventspy(slug, value):
+    """Keep destinations separate and source paths limited to site NFL snapshots."""
+    if not isinstance(value, dict) or set(value) != {"output_dir", "coverage_file", "schedule_file"}:
+        raise ValueError(f"{slug}: eventspy requires output_dir, coverage_file and schedule_file")
+    output = value["output_dir"]
+    if not isinstance(output, str) or not re.fullmatch(r"/var/lib/[a-z][a-z0-9-]{0,59}-eventspy-mirror/dev/public", output):
+        raise ValueError(f"{slug}: invalid EventSpy output_dir")
+    seattle_output = "/var/lib/sfz-eventspy-mirror/dev/public"
+    if (slug == "seahawks") != (output == seattle_output):
+        raise ValueError("The existing Seattle EventSpy output belongs only to seahawks and must be preserved")
+    coverage = value["coverage_file"]
+    if not isinstance(coverage, str) or not re.fullmatch(re.escape(slug) + r"(?:-20[0-9]{2})?\.json", coverage):
+        raise ValueError(f"{slug}: coverage_file must be a reviewed <team>.json or <team>-<season>.json basename")
+    schedule = value["schedule_file"]
+    expected_schedule = ("/var/lib/sfz-nfl/current/seahawks.json" if slug == "seahawks"
+                         else f"/var/lib/fanzone-eventspy/schedules/{slug}.json")
+    if schedule != expected_schedule:
+        raise ValueError(f"{slug}: EventSpy schedule_file must be {expected_schedule}")
+    return dict(value)
+
+
+def eventspy_slot(value):
+    """One exact UTC representation shared with JavaScript Date.toISOString()."""
+    if not isinstance(value, str) or len(value) > 64:
+        raise ValueError("Invalid EventSpy UTC slot")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0) or parsed.microsecond:
+        raise ValueError("EventSpy slot must be a whole-second UTC timestamp")
+    return parsed.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def eventspy_request_id(slot, site):
+    """Stable request identity; changing configuration never authorizes a slot retry."""
+    slot = eventspy_slot(slot)
+    digest = hashlib.sha256(json.dumps(site, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(f"collect:{site['slug']}:{slot}:{digest}".encode()).hexdigest()
