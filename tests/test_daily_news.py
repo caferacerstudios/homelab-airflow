@@ -1,6 +1,8 @@
 """Source-free tests; no Airflow installation or live API key required."""
 import base64
+import copy
 from datetime import datetime, timezone
+import html
 import importlib.util
 import json
 from pathlib import Path
@@ -168,6 +170,122 @@ class DailyNewsTests(unittest.TestCase):
         with self.assertRaises(ValueError): news.make_article(d,SOURCES,'2026-09-11',news.now_utc(),'fixture',[])
         d=draft(); d['sections'][0]['paragraphs'][0]['text']='<script>bad</script>'
         with self.assertRaises(ValueError): news.make_article(d,SOURCES,'2026-09-11',news.now_utc(),'fixture',[])
+
+    def test_research_markers_do_not_control_first_use_citation_numbers(self):
+        d = draft()
+        first, second = [section['paragraphs'][0] for section in d['sections']]
+        first['sourceIds'], second['sourceIds'] = ['S2'], ['S1']
+        first['text'] += ' [S2]'
+        second['text'] += ' [S1]'
+        result = news.make_article(d, SOURCES, '2026-09-12', news.now_utc(), 'fixture', [])
+        self.assertEqual(result['sources'], [{'label': s['label'], 'url': s['url']} for s in reversed(SOURCES)])
+        self.assertTrue(result['body'][1]['html'].endswith(f'<a href="{SOURCES[1]["url"]}">[1]</a>'))
+        self.assertTrue(result['body'][3]['html'].endswith(f'<a href="{SOURCES[0]["url"]}">[2]</a>'))
+        self.assertNotRegex(json.dumps(result['body']), r'\[S[0-9]+\]')
+
+    def test_marker_order_repetition_and_omitted_markers_preserve_declared_sources(self):
+        d = draft()
+        p = d['sections'][0]['paragraphs'][0]
+        p['sourceIds'] = ['S2', 'S1']
+        p['text'] += ' [S1] [S2] [S1]'
+        result = news.make_article(d, SOURCES, '2026-09-12', news.now_utc(), 'fixture', [])
+        self.assertEqual([s['url'] for s in result['sources']], [SOURCES[1]['url'], SOURCES[0]['url']])
+        self.assertTrue(result['body'][1]['html'].endswith(
+            f'<a href="{SOURCES[1]["url"]}">[1]</a> <a href="{SOURCES[0]["url"]}">[2]</a>'))
+        self.assertTrue(result['body'][3]['html'].endswith(f'<a href="{SOURCES[1]["url"]}">[1]</a>'))
+        p['text'] = p['text'].replace('[S2]', '')  # IDs do not require prose markers.
+        again = news.make_article(d, SOURCES, '2026-09-12', news.now_utc(), 'fixture', [])
+        self.assertEqual(again['sources'], result['sources'])
+
+    def test_unknown_or_unmatched_markers_are_rejected_before_acceptance(self):
+        for marker in ('[S2]', '[S999]', '[S0]', '[S01]'):
+            with self.subTest(marker=marker):
+                d = draft()
+                d['sections'][0]['paragraphs'][0]['text'] += ' ' + marker
+                with self.assertRaisesRegex(ValueError, 'absent from its sourceIds'):
+                    news.make_article(d, SOURCES, '2026-09-12', news.now_utc(), 'fixture', [])
+        for ids in ([], ['S999'], ['S1', 'S1'], [['S1']]):
+            with self.subTest(ids=ids):
+                d = draft()
+                d['sections'][0]['paragraphs'][0]['sourceIds'] = ids
+                with self.assertRaisesRegex(ValueError, 'known retrieved source IDs'):
+                    news.make_article(d, SOURCES, '2026-09-12', news.now_utc(), 'fixture', [])
+
+    def test_markers_outside_paragraphs_are_rejected(self):
+        for field in ('headline', 'dek', 'heading', 'tags'):
+            with self.subTest(field=field):
+                d = draft()
+                if field == 'heading':
+                    d['sections'][0]['heading'] += ' [S1]'
+                elif field == 'tags':
+                    d['tags'].append('[S1]')
+                else:
+                    d[field] += ' [S1]'
+                with self.assertRaisesRegex(ValueError, 'belong only in paragraph sourceIds'):
+                    news.make_article(d, SOURCES, '2026-09-12', news.now_utc(), 'fixture', [])
+
+    def test_normalization_changes_only_markers_and_is_idempotent(self):
+        value = 'These  source-backed words & punctuation, remain. [S2] Next sentence [S1].'
+        expected = value.replace('[S2]', '').replace('[S1]', '')
+        clean = news.normalize_paragraph_text(value, ['S1', 'S2'])
+        self.assertEqual(clean, expected)
+        self.assertEqual(news.normalize_paragraph_text(clean, ['S1', 'S2']), clean)
+        without_markers = 'These  source-backed words & punctuation, remain. Next sentence.'
+        self.assertEqual(news.normalize_paragraph_text(without_markers, ['S1']), without_markers)
+        with self.assertRaises(ValueError):
+            news.normalize_paragraph_text('[S1] ' * 8, ['S1'])
+
+    def test_html_escaping_and_urls_are_preserved_with_marker_normalization(self):
+        sources = copy.deepcopy(SOURCES)
+        sources[0]['url'] += '?first=1&second=2'
+        d = draft()
+        p = d['sections'][0]['paragraphs'][0]
+        p['text'] += ' A & B remain cited. [S1]'
+        result = news.make_article(d, sources, '2026-09-12', news.now_utc(), 'fixture', [])
+        self.assertEqual(result['sources'][0]['url'], sources[0]['url'])
+        self.assertIn('A &amp; B remain cited.', result['body'][1]['html'])
+        self.assertTrue(result['body'][1]['html'].endswith(
+            f'<a href="{html.escape(sources[0]["url"], quote=True)}">[1]</a>'))
+
+    def test_articles_without_markers_keep_exact_previous_html(self):
+        d = draft()
+        result = news.make_article(d, SOURCES, '2026-09-12', news.now_utc(), 'fixture', [])
+        for index, section in enumerate(d['sections']):
+            expected = html.escape(section['paragraphs'][0]['text'].strip())
+            expected += f' <a href="{SOURCES[index]["url"]}">[{index + 1}]</a>'
+            self.assertEqual(result['body'][index * 2 + 1]['html'], expected)
+
+    def test_source_registry_does_not_silently_rebind_ids(self):
+        variants = [
+            [SOURCES[0], {**SOURCES[1], 'id': 'S1'}],
+            [{**SOURCES[0], 'id': 'invalid'}, SOURCES[1]],
+            [SOURCES[0], {**SOURCES[1], 'url': SOURCES[0]['url']}],
+            [{**SOURCES[0], 'url': 'javascript:alert(1)'}, SOURCES[1]],
+            [{**SOURCES[0], 'url': 'https://user:password@www.seahawks.com/article'}, SOURCES[1]],
+            [{**SOURCES[0], 'url': None}, SOURCES[1]],
+        ]
+        for sources in variants:
+            with self.subTest(sources=sources), self.assertRaises(ValueError):
+                news.make_article(draft(), sources, '2026-09-12', news.now_utc(), 'fixture', [])
+
+    def test_marker_normalization_is_shared_by_all_five_teams(self):
+        sites = json.loads((ROOT / 'config/active-sites.json').read_text())
+        self.assertEqual(set(sites), {'seahawks', 'broncos', 'packers', 'vikings', 'chiefs'})
+        for slug, site in sites.items():
+            with self.subTest(team=slug):
+                d = draft()
+                first = d['sections'][0]['paragraphs'][0]
+                first['sourceIds'] = ['S2', 'S1']
+                first['text'] += ' [S1] [S2]'
+                sources = [
+                    {'id': 'S1', 'label': 'Team fixture', 'url': f'https://{site["source_domains"][0]}/fixture'},
+                    SOURCES[1],
+                ]
+                result = news.make_article(d, sources, '2026-09-12', news.now_utc(), 'fixture', [], site=site)
+                self.assertEqual(result['team'], slug)
+                self.assertTrue(result['slug'].startswith(f'daily-{slug}-'))
+                self.assertEqual(result['sources'][0]['url'], SOURCES[1]['url'])
+                self.assertNotRegex(json.dumps(result['body']), r'\[S[0-9]+\]')
 
     def test_restricted_command_passes_arguments_without_shell_interpretation(self):
         request={'runId':'manual__with spaces; $(false)','publicationDay':'2026-09-11'}

@@ -414,10 +414,28 @@ ARTICLE_SCHEMA = object_schema({
 })
 
 
-def clean_text(value, minimum=1, maximum=10000):
+SOURCE_MARKER = re.compile(r'\[(S[0-9]+)\]')
+
+
+def clean_text(value, minimum=1, maximum=10000, *, allow_source_markers=False):
     if not isinstance(value, str) or not minimum <= len(value.strip()) <= maximum or '<' in value or '>' in value or re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', value):
         raise ValueError('Invalid article text')
+    if not allow_source_markers and SOURCE_MARKER.search(value):
+        raise ValueError('Research source markers belong only in paragraph sourceIds')
     return value.strip()
+
+
+def normalize_paragraph_text(value, source_ids):
+    """Remove only research markers already supported by this paragraph's IDs.
+
+    Research IDs and final citation numbers have different ordering. The final
+    numbered links are rendered from sourceIds; a duplicate prose marker must
+    never be interpreted as that numbered citation or silently add a source.
+    """
+    text = clean_text(value, 30, 5000, allow_source_markers=True)
+    if any(source_id not in source_ids for source_id in SOURCE_MARKER.findall(text)):
+        raise ValueError('Paragraph source marker is absent from its sourceIds')
+    return clean_text(SOURCE_MARKER.sub('', text), 30, 5000)
 
 
 def make_article(draft, sources, day, now, model, previous, site=None):
@@ -439,7 +457,18 @@ def make_article(draft, sources, day, now, model, previous, site=None):
     sections = draft.get('sections')
     if not isinstance(sections, list) or not 2 <= len(sections) <= 8:
         raise ValueError('Expected two to eight article sections')
-    by_id = {s['id']: s for s in sources}
+    by_id, source_urls = {}, set()
+    for source in sources:
+        if not isinstance(source, dict) or not isinstance(source.get('id'), str) or not re.fullmatch(r'S[1-9][0-9]*', source['id']) or source['id'] in by_id:
+            raise ValueError('Research sources must have unique valid IDs')
+        url = source.get('url')
+        if not isinstance(url, str):
+            raise ValueError('Research sources must have valid HTTPS URLs')
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or url in source_urls:
+            raise ValueError('Research sources must have unique HTTPS URLs')
+        by_id[source['id']] = source
+        source_urls.add(url)
     used_ids, content, words = [], [], []
     for section in sections:
         heading = clean_text(section.get('heading'), 1, 150)
@@ -448,10 +477,10 @@ def make_article(draft, sources, day, now, model, previous, site=None):
         if not isinstance(paragraphs, list) or not 1 <= len(paragraphs) <= 5:
             raise ValueError('Invalid article paragraphs')
         for p in paragraphs:
-            text = clean_text(p.get('text'), 30, 5000)
             ids = p.get('sourceIds')
-            if not isinstance(ids, list) or not 1 <= len(ids) <= 4 or len(set(ids)) != len(ids) or any(i not in by_id for i in ids):
+            if not isinstance(ids, list) or not 1 <= len(ids) <= 4 or any(not isinstance(i, str) or i not in by_id for i in ids) or len(set(ids)) != len(ids):
                 raise ValueError('Each paragraph must cite known retrieved source IDs')
+            text = normalize_paragraph_text(p.get('text'), ids)
             words.extend(text.split())
             used_ids.extend(i for i in ids if i not in used_ids)
             content.append((text, ids))
