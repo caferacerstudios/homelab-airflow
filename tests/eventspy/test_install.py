@@ -5,6 +5,8 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
+from subprocess import CompletedProcess
 
 SOURCE = Path(__file__).resolve().parents[2] / "deployment/eventspy/install.py"
 spec = importlib.util.spec_from_file_location("eventspy_install", SOURCE)
@@ -181,6 +183,26 @@ class HandoffTests(unittest.TestCase):
             install.Installer.updated_unit(content)
 
 
+class CommandDiagnosticsTests(unittest.TestCase):
+    def test_isolated_node_validator_errors_are_visible(self):
+        args = ["docker", "run", "--rm", "--read-only", "--network", "none",
+                "--entrypoint", "node", "collector-image", "--check", "/review/collector.mjs"]
+        detail = "Seattle schedule does not bind all 17 reviewed games: week 3, game 1392256: SCHEDULE_GAME_MISSING"
+        with patch.object(install.subprocess, "run", return_value=CompletedProcess(args, 1, "", detail)):
+            with self.assertRaisesRegex(RuntimeError, "week 3, game 1392256"):
+                install.Host().run(args)
+
+    def test_unrelated_command_and_environment_output_remain_suppressed(self):
+        for args in (["docker", "run", "--env-file", "/production/.env", "image", "env"],
+                     ["systemctl", "status", "example.service"]):
+            with self.subTest(command=args[:2]):
+                with patch.object(install.subprocess, "run", return_value=CompletedProcess(
+                        args, 1, "BALLDONTLIE_API_KEY=do-not-print", "secret stderr")):
+                    with self.assertRaises(RuntimeError) as error:
+                        install.Host().run(args)
+                self.assertEqual(str(error.exception), f"Command failed (exit 1): {args[0]} {args[1]}")
+
+
 class LocalNodeHost:
     """Execute the same pure Node validation using local fixture mount sources."""
     def run(self, args):
@@ -200,7 +222,7 @@ class LocalNodeHost:
         result = subprocess.run(["node", "--input-type=module", "-e", args[program + 1], "--", *translated],
                                 capture_output=True, text=True)
         if result.returncode:
-            raise RuntimeError("Seattle schedule binding failed")
+            raise RuntimeError("Seattle schedule binding failed\n" + result.stderr)
         return result.stdout
 
 
@@ -248,6 +270,29 @@ class SeattleSnapshotTests(unittest.TestCase):
         before = {path.name: path.read_bytes() for path in self.snapshot.iterdir()}
         self.installer.check_seattle_schedule(self.site)
         self.assertEqual({path.name: path.read_bytes() for path in self.snapshot.iterdir()}, before)
+
+    @unittest.skipUnless(shutil.which("node"), "Node fixture test; host preflight always validates bindings in the collector image")
+    def test_recorded_server_snapshot_with_wsh_and_bye_passes_real_schedule_check(self):
+        # Recorded game IDs and abbreviations are independent of the coverage table.
+        fixture = Path(__file__).parent / "fixtures/seattle-2026-recorded-identity.json"
+        self.payload = json.loads(fixture.read_text())
+        self.write()
+        self.assertEqual(len(self.payload["gamesRegular"]), 18)
+        self.assertEqual(sum(row.get("bye") is not True for row in self.payload["gamesRegular"]), 17)
+        self.assertEqual(next(row for row in self.payload["gamesRegular"] if row["week"] == 3)["homeTeam"]["abbreviation"], "WSH")
+        before = {path.name: path.read_bytes() for path in self.snapshot.iterdir()}
+        self.installer.check_seattle_schedule(self.site)
+        self.assertEqual({path.name: path.read_bytes() for path in self.snapshot.iterdir()}, before)
+
+    @unittest.skipUnless(shutil.which("node"), "Node fixture test; host preflight always validates bindings in the collector image")
+    def test_real_schedule_check_names_wrong_week_and_game_id(self):
+        fixture = Path(__file__).parent / "fixtures/seattle-2026-recorded-identity.json"
+        self.payload = json.loads(fixture.read_text())
+        game = next(row for row in self.payload["gamesRegular"] if row["week"] == 3)
+        game["id"] = "1392257"
+        self.write()
+        with self.assertRaisesRegex(RuntimeError, "week 3, game 1392256: SCHEDULE_GAME_MISSING"):
+            self.installer.check_seattle_schedule(self.site)
 
     def test_bye_cannot_replace_a_missing_real_game(self):
         self.payload["gamesRegular"] = self.payload["gamesRegular"][1:] + [self.bye]

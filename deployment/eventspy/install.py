@@ -41,7 +41,11 @@ const source = readFileSync(schedulePath);
 if (createHash('sha256').update(source).digest('hex') !== digest) throw new Error('Seattle snapshot changed during validation; retry');
 const { bindCoverageToSchedule } = await import(pathToFileURL(helperPath));
 const bindings = bindCoverageToSchedule(JSON.parse(rawSite), JSON.parse(readFileSync(coveragePath, 'utf8')), JSON.parse(source));
-if (bindings.length !== 17 || bindings.some(binding => !binding.game || binding.reason)) throw new Error('Seattle schedule does not bind all 17 reviewed games');
+const missing = bindings.filter(binding => !binding.game || binding.reason);
+if (bindings.length !== 17 || missing.length) {
+  const details = missing.map(binding => `week ${binding.row.week}, game ${binding.row.gameId}: ${binding.reason}`).join('; ');
+  throw new Error(`Seattle schedule does not bind all 17 reviewed games: ${details || 'unexpected coverage count'}`);
+}
 console.log('Seattle schedule matches all 17 reviewed game identities');
 """
 
@@ -105,8 +109,16 @@ class Host:
     def run(self, args):
         result = subprocess.run(args, text=True, capture_output=True, timeout=180)
         if result.returncode:
-            # Docker/env diagnostics can contain credentials. Do not echo stderr.
-            raise RuntimeError(f"Command failed (exit {result.returncode}): {args[0]} {args[1]}")
+            message = f"Command failed (exit {result.returncode}): {args[0]} {args[1]}"
+            # These validators have no network, writable mounts or credential env.
+            # Show their errors so a failed game binding names its week and ID.
+            if (args[:2] == ["docker", "run"] and "--read-only" in args
+                    and "--network" in args and args[args.index("--network") + 1] == "none"
+                    and "--entrypoint" in args and args[args.index("--entrypoint") + 1] == "node"):
+                detail = (result.stdout + result.stderr).strip()
+                if detail:
+                    message += "\n" + detail[-6000:]
+            raise RuntimeError(message)
         return result.stdout
 
     def unit(self, name):

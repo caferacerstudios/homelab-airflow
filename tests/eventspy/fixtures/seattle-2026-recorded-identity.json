@@ -1,0 +1,774 @@
+{
+  "fixture": false,
+  "season": 2026,
+  "team": {
+    "id": 31,
+    "conference": "NFC",
+    "division": "WEST",
+    "location": "Seattle",
+    "name": "Seahawks",
+    "full_name": "Seattle Seahawks",
+    "abbreviation": "SEA"
+  },
+  "gamesRegular": [
+    {
+      "id": "1392216",
+      "season": 2026,
+      "week": 1,
+      "phase": "regular",
+      "state": "completed",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 1,
+        "conference": "AFC",
+        "division": "EAST",
+        "location": "New England",
+        "name": "Patriots",
+        "full_name": "New England Patriots",
+        "abbreviation": "NE"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 1,
+        "conference": "AFC",
+        "division": "EAST",
+        "location": "New England",
+        "name": "Patriots",
+        "full_name": "New England Patriots",
+        "abbreviation": "NE"
+      }
+    },
+    {
+      "id": "1392244",
+      "season": 2026,
+      "week": 2,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 33,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Arizona",
+        "name": "Cardinals",
+        "full_name": "Arizona Cardinals",
+        "abbreviation": "ARI"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 33,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Arizona",
+        "name": "Cardinals",
+        "full_name": "Arizona Cardinals",
+        "abbreviation": "ARI"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    },
+    {
+      "id": "1392256",
+      "season": 2026,
+      "week": 3,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 21,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "Washington",
+        "name": "Commanders",
+        "full_name": "Washington Commanders",
+        "abbreviation": "WSH"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 21,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "Washington",
+        "name": "Commanders",
+        "full_name": "Washington Commanders",
+        "abbreviation": "WSH"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    },
+    {
+      "id": "1392277",
+      "season": 2026,
+      "week": 4,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 17,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Los Angeles",
+        "name": "Chargers",
+        "full_name": "Los Angeles Chargers",
+        "abbreviation": "LAC"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 17,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Los Angeles",
+        "name": "Chargers",
+        "full_name": "Los Angeles Chargers",
+        "abbreviation": "LAC"
+      }
+    },
+    {
+      "id": "1392292",
+      "season": 2026,
+      "week": 5,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 30,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "San Francisco",
+        "name": "49ers",
+        "full_name": "San Francisco 49ers",
+        "abbreviation": "SF"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 30,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "San Francisco",
+        "name": "49ers",
+        "full_name": "San Francisco 49ers",
+        "abbreviation": "SF"
+      }
+    },
+    {
+      "id": "1392295",
+      "season": 2026,
+      "week": 6,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 15,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Denver",
+        "name": "Broncos",
+        "full_name": "Denver Broncos",
+        "abbreviation": "DEN"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 15,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Denver",
+        "name": "Broncos",
+        "full_name": "Denver Broncos",
+        "abbreviation": "DEN"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    },
+    {
+      "id": "1392321",
+      "season": 2026,
+      "week": 7,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 14,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Kansas City",
+        "name": "Chiefs",
+        "full_name": "Kansas City Chiefs",
+        "abbreviation": "KC"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 14,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Kansas City",
+        "name": "Chiefs",
+        "full_name": "Kansas City Chiefs",
+        "abbreviation": "KC"
+      }
+    },
+    {
+      "id": "1392336",
+      "season": 2026,
+      "week": 8,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 24,
+        "conference": "NFC",
+        "division": "NORTH",
+        "location": "Chicago",
+        "name": "Bears",
+        "full_name": "Chicago Bears",
+        "abbreviation": "CHI"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 24,
+        "conference": "NFC",
+        "division": "NORTH",
+        "location": "Chicago",
+        "name": "Bears",
+        "full_name": "Chicago Bears",
+        "abbreviation": "CHI"
+      }
+    },
+    {
+      "id": "1392349",
+      "season": 2026,
+      "week": 9,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 33,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Arizona",
+        "name": "Cardinals",
+        "full_name": "Arizona Cardinals",
+        "abbreviation": "ARI"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 33,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Arizona",
+        "name": "Cardinals",
+        "full_name": "Arizona Cardinals",
+        "abbreviation": "ARI"
+      }
+    },
+    {
+      "id": "1392361",
+      "season": 2026,
+      "week": 10,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 16,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Las Vegas",
+        "name": "Raiders",
+        "full_name": "Las Vegas Raiders",
+        "abbreviation": "LV"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 16,
+        "conference": "AFC",
+        "division": "WEST",
+        "location": "Las Vegas",
+        "name": "Raiders",
+        "full_name": "Las Vegas Raiders",
+        "abbreviation": "LV"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    },
+    {
+      "id": "2026-regular-11-bye",
+      "season": 2026,
+      "week": 11,
+      "phase": "regular",
+      "season_type": "regular",
+      "state": "bye",
+      "bye": true,
+      "homeTeam": null,
+      "awayTeam": null
+    },
+    {
+      "id": "1392392",
+      "season": 2026,
+      "week": 12,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 30,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "San Francisco",
+        "name": "49ers",
+        "full_name": "San Francisco 49ers",
+        "abbreviation": "SF"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 30,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "San Francisco",
+        "name": "49ers",
+        "full_name": "San Francisco 49ers",
+        "abbreviation": "SF"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    },
+    {
+      "id": "1392408",
+      "season": 2026,
+      "week": 13,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 19,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "Dallas",
+        "name": "Cowboys",
+        "full_name": "Dallas Cowboys",
+        "abbreviation": "DAL"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 19,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "Dallas",
+        "name": "Cowboys",
+        "full_name": "Dallas Cowboys",
+        "abbreviation": "DAL"
+      }
+    },
+    {
+      "id": "1392421",
+      "season": 2026,
+      "week": 14,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 20,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "New York",
+        "name": "Giants",
+        "full_name": "New York Giants",
+        "abbreviation": "NYG"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 20,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "New York",
+        "name": "Giants",
+        "full_name": "New York Giants",
+        "abbreviation": "NYG"
+      }
+    },
+    {
+      "id": "1392425",
+      "season": 2026,
+      "week": 15,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 18,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "Philadelphia",
+        "name": "Eagles",
+        "full_name": "Philadelphia Eagles",
+        "abbreviation": "PHI"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 18,
+        "conference": "NFC",
+        "division": "EAST",
+        "location": "Philadelphia",
+        "name": "Eagles",
+        "full_name": "Philadelphia Eagles",
+        "abbreviation": "PHI"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    },
+    {
+      "id": "1392443",
+      "season": 2026,
+      "week": 16,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "awayTeam": {
+        "id": 32,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Los Angeles",
+        "name": "Rams",
+        "full_name": "Los Angeles Rams",
+        "abbreviation": "LAR"
+      },
+      "home_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "visitor_team": {
+        "id": 32,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Los Angeles",
+        "name": "Rams",
+        "full_name": "Los Angeles Rams",
+        "abbreviation": "LAR"
+      }
+    },
+    {
+      "id": "1392467",
+      "season": 2026,
+      "week": 17,
+      "phase": "regular",
+      "state": "upcoming",
+      "bye": false,
+      "homeTeam": {
+        "id": 29,
+        "conference": "NFC",
+        "division": "SOUTH",
+        "location": "Carolina",
+        "name": "Panthers",
+        "full_name": "Carolina Panthers",
+        "abbreviation": "CAR"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 29,
+        "conference": "NFC",
+        "division": "SOUTH",
+        "location": "Carolina",
+        "name": "Panthers",
+        "full_name": "Carolina Panthers",
+        "abbreviation": "CAR"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    },
+    {
+      "id": "1392478",
+      "season": 2026,
+      "week": 18,
+      "phase": "regular",
+      "state": "tbd",
+      "bye": false,
+      "homeTeam": {
+        "id": 32,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Los Angeles",
+        "name": "Rams",
+        "full_name": "Los Angeles Rams",
+        "abbreviation": "LAR"
+      },
+      "awayTeam": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      },
+      "home_team": {
+        "id": 32,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Los Angeles",
+        "name": "Rams",
+        "full_name": "Los Angeles Rams",
+        "abbreviation": "LAR"
+      },
+      "visitor_team": {
+        "id": 31,
+        "conference": "NFC",
+        "division": "WEST",
+        "location": "Seattle",
+        "name": "Seahawks",
+        "full_name": "Seattle Seahawks",
+        "abbreviation": "SEA"
+      }
+    }
+  ]
+}

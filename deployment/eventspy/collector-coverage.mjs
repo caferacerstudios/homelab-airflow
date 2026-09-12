@@ -1,6 +1,11 @@
 /** Shared pure identity/status checks. No network requests or generated game IDs. */
 const text = value => String(value ?? "").trim();
-const abbr = team => text(team?.abbreviation ?? team?.abbr ?? team).toUpperCase();
+const abbr = team => {
+  const value = text(team?.abbreviation ?? team?.abbr ?? team).toUpperCase();
+  // Existing ticket coverage uses WAS; the live NFL snapshot uses WSH.
+  // Normalize comparisons only, preserving provider data and saved coverage.
+  return value === "WAS" ? "WSH" : value;
+};
 const gameId = game => text(game?.id ?? game?.gameId ?? game?.game_id);
 const safeId = value => /^\d{1,16}$/.test(text(value));
 const forbidden = /tailgate|parking|training|season[- ]?(?:ticket|pass)|ticket[- ]?package|vip[- :]/i;
@@ -69,7 +74,7 @@ function identityMatches(site, row, game) {
   const homeAbbr = abbr(home), awayAbbr = abbr(away), siteAbbr = abbr(site.abbreviation);
   // Never trust a foreign snapshot's isHome/opponent fields without its real teams.
   if (!homeAbbr || !awayAbbr || !siteAbbr) return false;
-  if (homeAbbr !== (row.homeTeamAbbreviation ?? (row.homeAway === "home" ? siteAbbr : row.opponentAbbreviation)) || awayAbbr !== (row.awayTeamAbbreviation ?? (row.homeAway === "away" ? siteAbbr : row.opponentAbbreviation))) return false;
+  if (homeAbbr !== abbr(row.homeTeamAbbreviation ?? (row.homeAway === "home" ? siteAbbr : row.opponentAbbreviation)) || awayAbbr !== abbr(row.awayTeamAbbreviation ?? (row.homeAway === "away" ? siteAbbr : row.opponentAbbreviation))) return false;
   if (row.week != null && Number(game.week) !== row.week) return false;
   if (row.season != null && Number(game.season) !== row.season) return false;
   const phase = text(game.phase ?? game.season_type ?? game.seasonType).toLowerCase();
