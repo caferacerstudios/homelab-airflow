@@ -89,6 +89,90 @@ test("Seattle normalizer retains the deployed exact snapshot keys and values", (
   });
 });
 
+test("missing provider destinations produce explicit nulls without changing observed prices or history", () => {
+  const original = buildSnapshot(row, payloadFor(row), now, SEA);
+  for (const missing of [null, undefined, ""]) {
+    const payload = payloadFor(row);
+    payload.event.seatgeekUrl = missing;
+    const before = structuredClone(payload);
+    const snapshot = buildSnapshot(row, payload, now, SEA);
+    assert.equal(snapshot.schemaVersion, "1.1.0");
+    assert.deepEqual(snapshot.providerLinks, { ...original.providerLinks, seatgeek: null });
+    assert.deepEqual(snapshot.summary, original.summary);
+    assert.deepEqual(snapshot.history, original.history);
+    assert.deepEqual(payload, before);
+  }
+});
+
+test("a missing link does not invent a different vendor for the lowest recorded price", () => {
+  const payload = payloadFor(row);
+  payload.event.currentPriceVendor = "SeatGeek";
+  payload.event.seatgeekUrl = null;
+  const snapshot = buildSnapshot(row, payload, now, SEA);
+  assert.equal(snapshot.summary.currentLowestMarketplace, "seatgeek");
+  assert.equal(snapshot.summary.currentLowestCents, Math.round(payload.event.currentPrice * 100));
+  assert.equal(snapshot.providerLinks.seatgeek, null);
+});
+
+test("unsafe present links and snapshots without any usable link still fail", () => {
+  for (const unsafe of ["http://seatgeek.com/event/123", "javascript:alert(1)",
+    "https://name:password@seatgeek.com/event/123", "https://seatgeek.com/event/123?token=secret",
+    "https://127.0.0.1/event/123", "   ", false, 0]) {
+    const payload = payloadFor(row);
+    payload.event.seatgeekUrl = unsafe;
+    assert.throws(() => buildSnapshot(row, payload, now, SEA), /invalid seatgeek provider URL/);
+  }
+  const empty = payloadFor(row);
+  for (const market of ["ticketmaster", "stubhub", "vividseats", "seatgeek"]) empty.event[`${market}Url`] = null;
+  assert.throws(() => buildSnapshot(row, empty, now, SEA), /no usable provider URLs/);
+});
+
+test("a previously cached Chiefs payload with no SeatGeek link publishes without new collection", async t => {
+  const site = { slug: "chiefs", city: "Kansas City", name: "Chiefs", abbreviation: "KC" };
+  const coverage = JSON.parse(await readFile(new URL("../coverage/chiefs.json", import.meta.url)));
+  const chiefsRow = coverage.find(value => value.sourceEventId === "374562");
+  const config = await environment(t, site, [chiefsRow]);
+  config.slot = "2026-09-12T16:00:00.000Z";
+  config.schedule = scheduleFor(site, [{ ...gameFor(chiefsRow), id: "1392253" }]);
+  const payload = payloadFor(chiefsRow, `Kansas City Chiefs vs ${chiefsRow.opponent}`);
+  payload.event.seatgeekUrl = null;
+  const cacheDirectory = join(config.cacheRoot, "2026-09-12");
+  await mkdir(cacheDirectory, { recursive: true });
+  const cacheFile = join(cacheDirectory, "374562.json");
+  const cached = JSON.stringify({ sourceEventId: "374562", day: "2026-09-12", attempts: {
+    [config.slot]: { reservedAt: config.slot, collectedAt: config.slot, payload },
+  } });
+  await writeFile(cacheFile, cached);
+  const { calls, dependencies } = mocks();
+  dependencies.now = Date.parse(config.slot);
+  const result = await runCollector(config, dependencies);
+  assert.equal(result.failed, 0);
+  assert.equal(result.succeeded, 1);
+  assert.equal(result.results[0].cached, true);
+  assert.deepEqual(result.results[0].missingProviders, ["seatgeek"]);
+  assert.equal(calls.launches, 0);
+  assert.deepEqual(calls.fetches, []);
+  assert.equal(await readFile(cacheFile, "utf8"), cached);
+  const published = JSON.parse(await readFile(join(config.outputRoot, "1392253.json"), "utf8"));
+  assert.equal(published.schemaVersion, "1.1.0");
+  assert.equal(published.providerLinks.seatgeek, null);
+});
+
+test("an unsafe link retains the previous publication even when other markets have good links", async t => {
+  const config = await environment(t);
+  await mkdir(config.outputRoot);
+  const destination = join(config.outputRoot, `${row.gameId}.json`);
+  const previous = JSON.stringify(buildSnapshot(row, payloadFor(row), now, SEA));
+  await writeFile(destination, previous);
+  const payload = payloadFor(row);
+  payload.event.seatgeekUrl = "http://seatgeek.com/event/123";
+  const { dependencies } = mocks(payload);
+  const summary = await runCollector(config, dependencies);
+  assert.equal(summary.failed, 1);
+  assert.match(summary.results[0].error, /invalid seatgeek provider URL/);
+  assert.equal(await readFile(destination, "utf8"), previous);
+});
+
 test("deployed fetch API calls retain GET event and POST history with credentials", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
