@@ -1,5 +1,10 @@
 # Five-team Fan Zone update
 
+The original four-pipeline handoff below remains historical deployment guidance.
+The additive roster/injury/transaction pipeline uses its own installer and leaves
+that handoff intact. See [Roster refresh](roster-refresh.md) and
+[Player statistics](player-statistics.md) before installing the roster update.
+
 This update extends the existing shared daily-news and EventSpy configuration to
 the NFL refresh and game-recap pipelines. The active sites are Seahawks, Broncos,
 Packers, Vikings, and Chiefs. The `fan_zone_active_sites` Airflow Variable remains

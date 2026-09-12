@@ -1,0 +1,7 @@
+{
+  "seahawks": {"name": "Seattle Seahawks", "abbreviation": "SEA", "domain": "www.seahawks.com", "timeZone": "America/Los_Angeles"},
+  "broncos": {"name": "Denver Broncos", "abbreviation": "DEN", "domain": "www.denverbroncos.com", "timeZone": "America/Denver"},
+  "packers": {"name": "Green Bay Packers", "abbreviation": "GB", "domain": "www.packers.com", "timeZone": "America/Chicago"},
+  "vikings": {"name": "Minnesota Vikings", "abbreviation": "MIN", "domain": "www.vikings.com", "timeZone": "America/Chicago"},
+  "chiefs": {"name": "Kansas City Chiefs", "abbreviation": "KC", "domain": "www.chiefs.com", "timeZone": "America/Chicago"}
+}
