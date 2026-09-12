@@ -28,6 +28,31 @@ IMAGE = "node:22-bookworm"
 PRIMARY_FILES = ("seahawks.json", "players.json", "standings.json")
 SNAPSHOT_FILES = (*PRIMARY_FILES, "gameRecaps.json")
 DOCKER_LABEL = "com.caferacerstudios.pipeline=sfz-nfl"
+SHARED = Path("/opt/fanzone-shared")
+DIVISIONS = {
+    "AFC East": ["BUF", "MIA", "NE", "NYJ"], "AFC North": ["BAL", "CIN", "CLE", "PIT"],
+    "AFC South": ["HOU", "IND", "JAX", "TEN"], "AFC West": ["DEN", "KC", "LAC", "LV"],
+    "NFC East": ["DAL", "NYG", "PHI", "WAS"], "NFC North": ["CHI", "DET", "GB", "MIN"],
+    "NFC South": ["ATL", "CAR", "NO", "TB"], "NFC West": ["ARI", "LAR", "SF", "SEA"],
+}
+
+
+def site_settings(site=None):
+    if site is None:
+        return {"slug": "seahawks", "name": "Seahawks", "city": "Seattle", "abbreviation": "SEA",
+                "balldontlie_team_id": 31, "nfl_snapshot_dir": str(RUNTIME / "current")}
+    if str(SHARED) not in sys.path:
+        sys.path.insert(0, str(SHARED))
+    from fan_zone_host import authorize_site
+    return authorize_site(site, "nfl")
+
+
+def primary_files(site=None):
+    return (f"{(site or {}).get('slug', 'seahawks')}.json", "players.json", "standings.json")
+
+
+def snapshot_files(site=None):
+    return (*primary_files(site), "gameRecaps.json")
 
 
 def command(args: list[str], **kwargs) -> str:
@@ -108,7 +133,9 @@ def timestamp(value: str) -> datetime:
     return parsed
 
 
-def validate_outputs(work: Path, started: datetime) -> tuple[dict, Path]:
+def validate_outputs(work: Path, started: datetime, site=None) -> tuple[dict, Path]:
+    selected = site or site_settings()
+    combined_name = primary_files(selected)[0]
     report = load_object(work / "fetch-report.json")
     if report.get("status") != "success":
         raise ValueError("Fetcher did not report a successful fresh collection")
@@ -122,19 +149,19 @@ def validate_outputs(work: Path, started: datetime) -> tuple[dict, Path]:
     if type(report.get("requestCount")) is not int or report["requestCount"] < 1:
         raise ValueError("Fetcher report must include its positive request count")
     data = work / "src/data/nfl"
-    payloads = {name: load_object(data / name) for name in PRIMARY_FILES}
+    payloads = {name: load_object(data / name) for name in primary_files(selected)}
     for name, payload in payloads.items():
         if payload.get("updatedAt") != report["updatedAt"] or payload.get("season") != season:
             raise ValueError(f"Freshness/season mismatch in {name}")
         if payload.get("fixture") is True:
             raise ValueError(f"Refusing fixture data in {name}")
-    combined = payloads["seahawks.json"]
+    combined = payloads[combined_name]
     players = payloads["players.json"]
     team_id = combined.get("team", {}).get("id")
     if type(team_id) is not int or team_id < 1:
         raise ValueError("Combined snapshot has an invalid team ID")
-    for name, payload in (("seahawks.json", combined), ("players.json", players)):
-        if payload.get("team", {}).get("abbreviation") != "SEA" or payload["team"].get("id") != team_id:
+    for name, payload in ((combined_name, combined), ("players.json", players)):
+        if payload.get("team", {}).get("abbreviation") != selected["abbreviation"] or payload["team"].get("id") != team_id:
             raise ValueError(f"Wrong team in {name}")
         if payload.get("playerStatsSeason") != report.get("playerStatsSeason"):
             raise ValueError(f"Player-stat season mismatch in {name}")
@@ -143,9 +170,12 @@ def validate_outputs(work: Path, started: datetime) -> tuple[dict, Path]:
                 raise ValueError(f"Missing {key} array in {name}")
         if not payload["playerSeasonStats"]:
             raise ValueError(f"Empty player statistics in {name}")
+    expected_id = selected.get("balldontlie_team_id")
+    if expected_id is not None and team_id != expected_id:
+        raise ValueError("NFL snapshot team ID does not match configured team")
     for key in ("games", "gamesPreseason", "gamesRegular", "gamesPostseason"):
         if not isinstance(combined.get(key), list):
-            raise ValueError(f"Missing {key} array in seahawks.json")
+            raise ValueError(f"Missing {key} array in {combined_name}")
     if not combined["gamesRegular"]:
         raise ValueError("Regular-season schedule is empty")
     for phase in ("preseason", "regular", "postseason"):
@@ -157,50 +187,115 @@ def validate_outputs(work: Path, started: datetime) -> tuple[dict, Path]:
     return report, data
 
 
-def verify_snapshot(snapshot: Path, run_id: str | None = None) -> dict:
+def verify_snapshot(snapshot: Path, run_id: str | None = None, site=None) -> dict:
     manifest = load_object(snapshot / "manifest.json")
     if manifest.get("schema_version") != 1 or (run_id is not None and manifest.get("runId") != run_id):
         raise ValueError("Snapshot manifest identity is invalid")
+    slug = (site or {}).get("slug", "seahawks")
+    if manifest.get("team") not in ([None, "seahawks"] if slug == "seahawks" else [slug]):
+        raise ValueError("Snapshot manifest belongs to a different team")
     files = manifest.get("files", {})
-    if not isinstance(files, dict) or not set(PRIMARY_FILES) <= set(files) or not set(files) <= set(SNAPSHOT_FILES):
+    if not isinstance(files, dict) or not set(primary_files(site)) <= set(files) or not set(files) <= set(snapshot_files(site)):
         raise ValueError("Snapshot manifest file list is invalid")
     for name, digest in files.items():
         if file_hash(snapshot / name) != digest:
             raise ValueError(f"Snapshot checksum mismatch: {name}")
+    if site is not None:
+        for name in primary_files(site)[:2]:
+            team = load_object(snapshot / name).get("team", {})
+            if team.get("abbreviation") != site["abbreviation"]:
+                raise ValueError("Cached snapshot team abbreviation mismatch")
+            if site.get("balldontlie_team_id") is not None and team.get("id") != site["balldontlie_team_id"]:
+                raise ValueError("Cached snapshot team ID mismatch")
     return manifest
 
 
-def stage_source(source: Path, work: Path, current: Path) -> None:
+def stage_source(source: Path, work: Path, current: Path, site=None) -> None:
     shutil.copytree(source / "scripts", work / "scripts")
     shutil.copytree(source / "src/lib", work / "src/lib")
     roster = work / "src/data/team/roster.json"
     roster.parent.mkdir(parents=True)
-    shutil.copy2(source / "src/data/team/roster.json", roster)
+    selected = site or site_settings()
+    combined_name = primary_files(selected)[0]
+    if selected["slug"] == "seahawks":
+        shutil.copy2(source / "src/data/team/roster.json", roster)
+    else:
+        # The BDL player directory is not an authoritative active roster.
+        roster.write_text(json.dumps({"players": []}) + "\n")
+        adapt_staged_source(work, selected)
     data = work / "src/data/nfl"
     data.mkdir(parents=True)
     source_data = source / "src/data/nfl"
-    for path in source_data.glob("watch-guide-*.json"):
+    for path in (source_data.glob("watch-guide-*.json") if selected["slug"] == "seahawks" else []):
         shutil.copy2(path, data / path.name)
-    for name in ("seahawks.json", "gameRecaps.json"):
+    for name in (("seahawks.json", "gameRecaps.json") if selected["slug"] == "seahawks" else []):
         if (source_data / name).is_file():
             shutil.copy2(source_data / name, data / name)
     if current.exists():
         previous = current.resolve(strict=True)
-        verify_snapshot(previous)
-        shutil.copy2(previous / "seahawks.json", data / "seahawks.json")
+        verify_snapshot(previous, site=selected)
+        shutil.copy2(previous / combined_name, data / combined_name)
 
 
-def run_node(work: Path, api_key: str, run_key: str) -> None:
+def check_staging_contract(source: Path) -> None:
+    fetch = (source / "scripts/fetch-nfl.mjs").read_text()
+    normalizer = (source / "src/lib/schedule.mjs").read_text()
+    required = {
+        '"seahawks.json"': 2,
+        '  console.log(`Using ${TEAM_ABBR} team id: ${team.id}`);': 1,
+    }
+    if any(fetch.count(marker) != count for marker, count in required.items()):
+        raise ValueError("Production NFL fetcher staging contract changed; review before collecting another team")
+    standings = (source / "src/lib/standings.mjs").read_text()
+    if standings.count('const WEST = new Set(["ARI", "LAR", "SF", "SEA"]);') != 1:
+        raise ValueError("Production standings division binding changed; review before collecting another team")
+    if normalizer.count('const TEAM = "SEA";') != 1:
+        raise ValueError("Production schedule normalizer team binding changed; review before collecting another team")
+
+
+def adapt_staged_source(work: Path, site: dict) -> None:
+    """Bind the production normalizers to one team only in an isolated work copy."""
+    check_staging_contract(work)
+    fetch_path = work / "scripts/fetch-nfl.mjs"
+    fetch = fetch_path.read_text()
+    fetch = fetch.replace('"seahawks.json"', json.dumps(site["slug"] + ".json"))
+    marker = '  console.log(`Using ${TEAM_ABBR} team id: ${team.id}`);'
+    expected = json.dumps({"full_name": site["city"] + " " + site["name"],
+                           "id": site.get("balldontlie_team_id")})
+    guard = '''  const configuredTeam = __EXPECTED__;
+  const matchingTeams = teams.filter((candidate) => (candidate.abbreviation || "").toUpperCase() === TEAM_ABBR);
+  if (matchingTeams.length !== 1 || !Number.isSafeInteger(team.id) || team.id < 1
+      || String(team.full_name || "").toLowerCase() !== configuredTeam.full_name.toLowerCase()
+      || (configuredTeam.id !== null && team.id !== configuredTeam.id)) {
+    throw new Error("API team identity does not match the configured active site");
+  }
+'''.replace("__EXPECTED__", expected)
+    fetch_path.write_text(fetch.replace(marker, guard + marker))
+    normalizer = work / "src/lib/schedule.mjs"
+    body = normalizer.read_text().replace('const TEAM = "SEA";', 'const TEAM = ' + json.dumps(site["abbreviation"]) + ';')
+    body = body.replace('game.seahawksRecordAfter', 'game.' + site["slug"].replace('-', '_') + 'RecordAfter')
+    normalizer.write_text(body)
+    division = DIVISIONS.get(site.get("division"))
+    if not division or site["abbreviation"] not in division:
+        raise ValueError("Configured NFL division does not contain the selected team")
+    standings = work / "src/lib/standings.mjs"
+    standings.write_text(standings.read_text().replace(
+        'const WEST = new Set(["ARI", "LAR", "SF", "SEA"]);',
+        'const WEST = new Set(' + json.dumps(division) + ');'))
+
+
+def run_node(work: Path, api_key: str, run_key: str, site=None) -> None:
     if command(["docker", "ps", "--filter", f"label={DOCKER_LABEL}", "--format", "{{.ID}}"]):
         raise ValueError("A previous NFL collector container is still running; no second collection was started")
     name = f"sfz-nfl-{run_key[:24]}-{uuid.uuid4().hex[:8]}"
+    selected = site or site_settings()
     env = os.environ.copy()
     env["BALLDONTLIE_API_KEY"] = api_key
     args = [
         "docker", "run", "--rm", "--pull=never", "--name", name,
         "--label", DOCKER_LABEL, "--read-only", "--user", f"{os.getuid()}:{os.getgid()}",
         "--mount", f"type=bind,src={work},dst=/app", "--workdir", "/app",
-        "--env", "BALLDONTLIE_API_KEY", "--env", "NFL_TEAM_ABBR=SEA",
+        "--env", "BALLDONTLIE_API_KEY", "--env", "NFL_TEAM_ABBR=" + selected["abbreviation"],
         "--env", "NFL_FETCH_STRICT=1", "--env", "NFL_REQUEST_INTERVAL_MS=15000",
         "--env", "NFL_FETCH_REPORT=/app/fetch-report.json",
         IMAGE, "node", "scripts/fetch-nfl.mjs",
@@ -226,36 +321,49 @@ def run_node(work: Path, api_key: str, run_key: str) -> None:
         raise RuntimeError(f"NFL fetcher exited {process.returncode}; inspect {work / 'collector.log'}")
 
 
-def collect(run_id: str, source: Path = SOURCE, runtime: Path = RUNTIME) -> dict:
+def collect(run_id: str, source: Path = SOURCE, runtime: Path | None = None, site=None) -> dict:
     if not run_id or len(run_id) > 512:
         raise ValueError("run-id must contain between 1 and 512 characters")
+    selected = site_settings(site)
+    if selected.get("enabled") is False:
+        raise ValueError("NFL refresh is disabled for this site")
+    explicit_runtime = runtime is not None
+    runtime = Path(runtime) if explicit_runtime else Path(selected["nfl_snapshot_dir"]).parent
+    # Retain the existing global host lock as well as the single Airflow API pool.
+    lock_runtime = runtime if explicit_runtime else RUNTIME
     run_key = hashlib.sha256(run_id.encode()).hexdigest()
     run_dir = runtime / "runs" / run_key
     snapshot = run_dir / "snapshot"
-    with (runtime / "collector.lock").open("a") as lock:
+    with (lock_runtime / "collector.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("Another NFL collection is running; no new collection was started") from None
         if snapshot.exists():
-            manifest = verify_snapshot(snapshot, run_id)
+            manifest = verify_snapshot(snapshot, run_id, selected)
             # Finish an interrupted publication, but never roll back a newer run.
             current = runtime / "current"
-            if not current.exists() or timestamp(verify_snapshot(current.resolve())["updatedAt"]) <= timestamp(manifest["updatedAt"]):
+            if not current.exists() or timestamp(verify_snapshot(current.resolve(), site=selected)["updatedAt"]) <= timestamp(manifest["updatedAt"]):
                 publish_link(snapshot, runtime)
             return {**manifest, "snapshotPath": str(snapshot)}
         commit, api_key = preflight(source, runtime)
         run_dir.mkdir(parents=True, exist_ok=True)
         work = run_dir / f"work-{time.time_ns()}"
-        stage_source(source, work, runtime / "current")
+        if site is None:
+            stage_source(source, work, runtime / "current")
+        else:
+            stage_source(source, work, runtime / "current", selected)
         if source_commit(source) != commit:
             raise RuntimeError("Source commit changed during staging; no API collection was started")
         started = datetime.now(timezone.utc)
-        run_node(work, api_key, run_key)
-        report, data = validate_outputs(work, started)
+        if site is None:
+            run_node(work, api_key, run_key)
+        else:
+            run_node(work, api_key, run_key, selected)
+        report, data = validate_outputs(work, started, selected)
         pending = run_dir / f"snapshot-{uuid.uuid4().hex}.tmp"
         pending.mkdir()
-        for name in SNAPSHOT_FILES:
+        for name in snapshot_files(selected):
             if (data / name).is_file():
                 shutil.copy2(data / name, pending / name)
                 with (pending / name).open("rb") as copied:
@@ -263,13 +371,15 @@ def collect(run_id: str, source: Path = SOURCE, runtime: Path = RUNTIME) -> dict
         manifest = {
             "schema_version": 1, "runId": run_id, "updatedAt": report["updatedAt"],
             "season": report["season"], "sourceCommit": commit, "requestCount": report["requestCount"],
-            "files": {name: file_hash(pending / name) for name in SNAPSHOT_FILES if (pending / name).is_file()},
+            "files": {name: file_hash(pending / name) for name in snapshot_files(selected) if (pending / name).is_file()},
         }
+        if site is not None:
+            manifest["team"] = selected["slug"]
         with (pending / "manifest.json").open("w") as output:
             output.write(json.dumps(manifest, indent=2) + "\n")
             output.flush()
             os.fsync(output.fileno())
-        verify_snapshot(pending, run_id)
+        verify_snapshot(pending, run_id, selected)
         sync_directory(pending)
         pending.rename(snapshot)
         sync_directory(run_dir)
@@ -301,15 +411,20 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="Read-only preflight; no API requests")
     mode.add_argument("--run-id", help="Airflow run ID; successful repeats reuse the verified receipt")
+    parser.add_argument("--site-json", help="Validated site request from the dedicated SSH command")
     args = parser.parse_args()
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, interrupted)
     try:
+        request_site = json.loads(args.site_json) if args.site_json else None
+        selected = site_settings(request_site)
         if args.check:
-            commit, _ = preflight(SOURCE, RUNTIME)
+            commit, _ = preflight(SOURCE, Path(selected["nfl_snapshot_dir"]).parent)
+            if selected["slug"] != "seahawks":
+                check_staging_contract(SOURCE)
             print(json.dumps({"status": "ready", "sourceCommit": commit, "image": IMAGE, "apiRequests": 0}))
         else:
-            result = collect(args.run_id)
+            result = collect(args.run_id, site=request_site)
             print("SFZ_NFL_RECEIPT=" + json.dumps(result, separators=(",", ":")))
         return 0
     except BrokenPipeError:

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, mkdir, readdir, rm } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSnapshot, runCollector, fetchEvent } from "../collector.mjs";
-import { bindCoverageToSchedule, collectionDecision, validateCoverage } from "../collector-coverage.mjs";
+import { bindCoverageToSchedule, collectionDecision, validateCoverage, validateEventIdentity } from "../collector-coverage.mjs";
 
 const SEA = { slug: "seahawks", city: "Seattle", name: "Seahawks", abbreviation: "SEA" };
 const DEN = { slug: "broncos", city: "Denver", name: "Broncos", abbreviation: "DEN", timezone: "America/Denver" };
@@ -13,6 +13,25 @@ const broncos = JSON.parse(await readFile(new URL("../coverage/broncos.json", im
 const now = Date.parse("2026-09-12T10:00:00.000Z");
 const slot = new Date(now).toISOString();
 const row = seahawks[1];
+
+test("stadium tours and club seating products cannot become general game inventory", () => {
+  const site = { slug: "chiefs", city: "Kansas City", name: "Chiefs", abbreviation: "KC" };
+  const event = { ...broncos[0], opponent: "Denver Broncos", homeAway: "home" };
+  for (const prefix of ["Gameday Stadium Tour - ", "Stadium-Tour: ", "Club Seats: ", "Club-Seats: "]) {
+    assert.throws(() => validateEventIdentity(site, event, {
+      id: event.sourceEventId, eventDateLocal: event.localDate,
+      eventName: `${prefix}Denver Broncos v Kansas City Chiefs`,
+    }), /matchup mismatch/);
+  }
+  for (const product of ["gameday-stadium-tour", "club-seats"]) {
+    assert.throws(() => validateCoverage(site, [{ ...event,
+      sourceUrl: `https://www.event-spy.com/event/kansas-city-chiefs-${product}-kansas-city-sep-14-2026/372314`,
+    }]), /Unsafe EventSpy source URL/);
+  }
+  assert.equal(validateEventIdentity(site, event, {
+    id: event.sourceEventId, eventDateLocal: event.localDate, eventName: "Kansas City Chiefs v Denver Broncos",
+  }), "Kansas City Chiefs v Denver Broncos");
+});
 
 function payloadFor(row, title = `Seattle Seahawks vs ${row.opponent}`) {
   return {

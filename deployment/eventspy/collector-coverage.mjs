@@ -8,7 +8,7 @@ const abbr = team => {
 };
 const gameId = game => text(game?.id ?? game?.gameId ?? game?.game_id);
 const safeId = value => /^\d{1,16}$/.test(text(value));
-const forbidden = /tailgate|parking|training|season[- ]?(?:ticket|pass)|ticket[- ]?package|vip[- :]/i;
+const forbidden = /tailgate|parking|training|stadium[- ]?tour|club[- ]?seats|season[- ]?(?:ticket|pass)|ticket[- ]?package|vip[- :]/i;
 
 export function localDay(value, timeZone = "America/Los_Angeles") {
   const date = new Date(value);

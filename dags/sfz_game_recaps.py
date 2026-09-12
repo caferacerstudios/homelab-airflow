@@ -1,4 +1,4 @@
-"""Generate missing game recaps from the latest NFL snapshot on wkr."""
+"""Generate each active team's missing final-game recaps every Tuesday."""
 from datetime import timedelta
 
 import pendulum
@@ -8,56 +8,44 @@ from airflow.timetables.trigger import CronTriggerTimetable
 
 @dag(
     dag_id="sfz_game_recaps",
-    schedule=CronTriggerTimetable("45 0,3,6,9,12,14,16,18,20,22 * * *", timezone="America/Los_Angeles"),
+    schedule=CronTriggerTimetable("45 6 * * 2", timezone="America/Los_Angeles"),
     start_date=pendulum.datetime(2026, 9, 10, tz="America/Los_Angeles"),
-    catchup=False,
-    max_active_runs=1,
-    max_active_tasks=1,
-    is_paused_upon_creation=True,
-    default_args={"owner": "laura", "retries": 0},
-    tags=["seahawks", "recaps", "openai"],
-    doc_md="""Check ten times daily, 30 minutes after the NFL refresh slots.
-    The Python host runner reads the latest completed NFL snapshot and uses the
-    existing recap writer only for final games missing complete recaps. Existing
-    complete recaps are reused, so a no-op uses no OpenAI or source API requests.
-    Recaps publish under /var/lib/sfz-recaps/current and builds import them.
-    The DAG does not rebuild the website. Existing prose style and model remain.
+    catchup=False, max_active_runs=1, max_active_tasks=1, is_paused_upon_creation=True,
+    default_args={"owner": "laura", "retries": 0}, tags=["fan-zone", "recaps", "openai"],
+    doc_md="""At 06:45 Pacific each Tuesday, generate missing final-game recaps for
+    sites enabled in fan_zone_active_sites. Each team appears as a separate task
+    and uses prompts.recap with its own NFL input and recap output directory.
+    Complete recaps and historical entries are retained. No-op runs make no API
+    requests. Seattle continues publishing /var/lib/sfz-recaps/current/gameRecaps.json.
+    This DAG does not generate daily news, build a website, or deploy a site.
     """,
 )
 def sfz_game_recaps():
+    from fan_zone_tasks import active_sites
+    sites = active_sites()
+
     @task(pool="balldontlie_api", execution_timeout=timedelta(minutes=70))
-    def generate_recaps():
+    def generate_recaps(site):
         from airflow.sdk import get_current_context
         from sfz_recap_hook import RecapRefreshHook
-
-        return RecapRefreshHook().refresh(get_current_context()["run_id"])
+        receipt = RecapRefreshHook().refresh(get_current_context()["run_id"], site)
+        return {"site": site, "receipt": receipt}
 
     @task(execution_timeout=timedelta(minutes=2))
-    def save_run_receipt(receipt: dict):
-        import hashlib
-        import json
-        import os
-        from pathlib import Path
+    def save_run_receipt(result):
         from airflow.sdk import get_current_context
-        from sfz_recap_hook import validate_receipt
+        from sfz_recap_hook import save_receipt
+        return save_receipt(result["receipt"], get_current_context()["run_id"], result["site"])
 
-        run_id = get_current_context()["run_id"]
-        validate_receipt(receipt, run_id)
-        directory = Path("/opt/airflow/artifacts/seahawks/recaps") / hashlib.sha256(run_id.encode()).hexdigest()
-        directory.mkdir(parents=True, exist_ok=True)
-        target = directory / "receipt.json"
-        temporary = directory / "receipt.json.tmp"
-        with temporary.open("w") as handle:
-            json.dump(receipt, handle, indent=2)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, target)
-        print(f"Recaps saved: {target}; generated={receipt['generatedCount']}; "
-              f"OpenAI requests={receipt['openaiRequestCount']}; NFL requests={receipt['requestCount']}")
-        return str(target)
-
-    save_run_receipt(generate_recaps())
+    for site in sites:
+        slug = site["slug"]
+        title = f"{site['city']} {site['name']}"
+        recaps = generate_recaps.override(
+            task_id=f"generate_recaps_{slug}", task_display_name=f"Generate game recaps: {title}",
+        )(site)
+        save_run_receipt.override(
+            task_id=f"save_run_receipt_{slug}", task_display_name=f"Save recap receipt: {title}",
+        )(recaps)
 
 
 sfz_game_recaps()

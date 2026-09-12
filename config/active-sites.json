@@ -12,7 +12,8 @@
       "nfl.com"
     ],
     "prompts": {
-      "article": "Write for Seattle Seahawks fans. Explain the most significant verified development and what it means for the team."
+      "article": "Write for Seattle Seahawks fans. Explain the most significant verified development and what it means for the team.",
+      "recap": "Write a thorough game recap for Seattle Seahawks fans using only the supplied final score, verified game statistics and play-by-play. Explain the turning points, decisive possessions and performances with specific evidence. Aim for 600–900 words when the evidence supports it; keep it shorter when data is limited. Distinguish verified facts from analysis. Never invent quotes, injuries, weather, playoff implications or plays. Preserve the real opponent names and describe the result from the Seattle perspective."
     },
     "slug": "seahawks",
     "website_root": "/home/laurawkr/seahawksfanzone",
@@ -21,14 +22,17 @@
       "output_dir": "/var/lib/sfz-eventspy-mirror/dev/public",
       "coverage_file": "seahawks.json",
       "schedule_file": "/var/lib/sfz-nfl/current/seahawks.json"
-    }
+    },
+    "nfl_snapshot_dir": "/var/lib/sfz-nfl/current",
+    "recap_snapshot_dir": "/var/lib/sfz-recaps/current",
+    "division": "NFC West"
   },
   "broncos": {
     "enabled": true,
     "name": "Broncos",
     "city": "Denver",
     "abbreviation": "DEN",
-    "balldontlie_team_id": null,
+    "balldontlie_team_id": 15,
     "news_snapshot_dir": "/var/lib/boncosfz-news/current",
     "news_photos_dir": "/var/lib/boncosfz-news/photos",
     "source_domains": [
@@ -36,7 +40,8 @@
       "nfl.com"
     ],
     "prompts": {
-      "article": "Write for Denver Broncos fans. Explain the most significant verified development and what it means for the team."
+      "article": "Write for Denver Broncos fans. Explain the most significant verified development and what it means for the team.",
+      "recap": "Write a thorough game recap for Denver Broncos fans using only the supplied final score, verified game statistics and play-by-play. Explain the turning points, decisive possessions and performances with specific evidence. Aim for 600–900 words when the evidence supports it; keep it shorter when data is limited. Distinguish verified facts from analysis. Never invent quotes, injuries, weather, playoff implications or plays. Preserve the real opponent names and describe the result from the Denver perspective."
     },
     "slug": "broncos",
     "website_root": "/home/laurawkr/templatefanzone",
@@ -45,6 +50,93 @@
       "output_dir": "/var/lib/boncosfz-eventspy-mirror/dev/public",
       "coverage_file": "broncos.json",
       "schedule_file": "/var/lib/fanzone-eventspy/schedules/broncos.json"
-    }
+    },
+    "nfl_snapshot_dir": "/var/lib/boncosfz-nfl/current",
+    "recap_snapshot_dir": "/var/lib/boncosfz-recaps/current",
+    "division": "AFC West"
+  },
+  "packers": {
+    "enabled": true,
+    "name": "Packers",
+    "city": "Green Bay",
+    "abbreviation": "GB",
+    "balldontlie_team_id": 22,
+    "news_snapshot_dir": "/var/lib/packersfz-news/current",
+    "news_photos_dir": "/var/lib/packersfz-news/photos",
+    "source_domains": [
+      "packers.com",
+      "nfl.com"
+    ],
+    "prompts": {
+      "article": "Write for Green Bay Packers fans. Explain the most significant verified development and what it means for the team.",
+      "recap": "Write a thorough game recap for Green Bay Packers fans using only the supplied final score, verified game statistics and play-by-play. Explain the turning points, decisive possessions and performances with specific evidence. Aim for 600–900 words when the evidence supports it; keep it shorter when data is limited. Distinguish verified facts from analysis. Never invent quotes, injuries, weather, playoff implications or plays. Preserve the real opponent names and describe the result from the Green Bay perspective."
+    },
+    "slug": "packers",
+    "website_root": "/home/laurawkr/templatefanzone",
+    "timezone": "America/Los_Angeles",
+    "eventspy": {
+      "output_dir": "/var/lib/packersfz-eventspy-mirror/dev/public",
+      "coverage_file": "packers.json",
+      "schedule_file": "/var/lib/fanzone-eventspy/schedules/packers.json"
+    },
+    "nfl_snapshot_dir": "/var/lib/packersfz-nfl/current",
+    "recap_snapshot_dir": "/var/lib/packersfz-recaps/current",
+    "division": "NFC North"
+  },
+  "vikings": {
+    "enabled": true,
+    "name": "Vikings",
+    "city": "Minnesota",
+    "abbreviation": "MIN",
+    "balldontlie_team_id": 23,
+    "news_snapshot_dir": "/var/lib/vikingsfz-news/current",
+    "news_photos_dir": "/var/lib/vikingsfz-news/photos",
+    "source_domains": [
+      "vikings.com",
+      "nfl.com"
+    ],
+    "prompts": {
+      "article": "Write for Minnesota Vikings fans. Explain the most significant verified development and what it means for the team.",
+      "recap": "Write a thorough game recap for Minnesota Vikings fans using only the supplied final score, verified game statistics and play-by-play. Explain the turning points, decisive possessions and performances with specific evidence. Aim for 600–900 words when the evidence supports it; keep it shorter when data is limited. Distinguish verified facts from analysis. Never invent quotes, injuries, weather, playoff implications or plays. Preserve the real opponent names and describe the result from the Minnesota perspective."
+    },
+    "slug": "vikings",
+    "website_root": "/home/laurawkr/templatefanzone",
+    "timezone": "America/Los_Angeles",
+    "eventspy": {
+      "output_dir": "/var/lib/vikingsfz-eventspy-mirror/dev/public",
+      "coverage_file": "vikings.json",
+      "schedule_file": "/var/lib/fanzone-eventspy/schedules/vikings.json"
+    },
+    "nfl_snapshot_dir": "/var/lib/vikingsfz-nfl/current",
+    "recap_snapshot_dir": "/var/lib/vikingsfz-recaps/current",
+    "division": "NFC North"
+  },
+  "chiefs": {
+    "enabled": true,
+    "name": "Chiefs",
+    "city": "Kansas City",
+    "abbreviation": "KC",
+    "balldontlie_team_id": 14,
+    "news_snapshot_dir": "/var/lib/chiefsfz-news/current",
+    "news_photos_dir": "/var/lib/chiefsfz-news/photos",
+    "source_domains": [
+      "chiefs.com",
+      "nfl.com"
+    ],
+    "prompts": {
+      "article": "Write for Kansas City Chiefs fans. Explain the most significant verified development and what it means for the team.",
+      "recap": "Write a thorough game recap for Kansas City Chiefs fans using only the supplied final score, verified game statistics and play-by-play. Explain the turning points, decisive possessions and performances with specific evidence. Aim for 600–900 words when the evidence supports it; keep it shorter when data is limited. Distinguish verified facts from analysis. Never invent quotes, injuries, weather, playoff implications or plays. Preserve the real opponent names and describe the result from the Kansas City perspective."
+    },
+    "slug": "chiefs",
+    "website_root": "/home/laurawkr/templatefanzone",
+    "timezone": "America/Los_Angeles",
+    "eventspy": {
+      "output_dir": "/var/lib/chiefsfz-eventspy-mirror/dev/public",
+      "coverage_file": "chiefs.json",
+      "schedule_file": "/var/lib/fanzone-eventspy/schedules/chiefs.json"
+    },
+    "nfl_snapshot_dir": "/var/lib/chiefsfz-nfl/current",
+    "recap_snapshot_dir": "/var/lib/chiefsfz-recaps/current",
+    "division": "AFC West"
   }
 }

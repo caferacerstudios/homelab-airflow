@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -168,6 +169,7 @@ class RefreshRecapsTests(unittest.TestCase):
             self.assertNotIn("secret", str(caught.exception))
 
     def test_docker_passes_key_names_and_redacts_logged_output(self):
+        write_json(self.root / "src/data/nfl/seahawks.json", {"team": {"id": 31}})
         process = Mock(returncode=0)
         process.communicate.return_value = ("bdl-secret and ai-secret were passed", None)
         with patch.object(runner.subprocess, "Popen", return_value=process) as popen:
@@ -180,6 +182,98 @@ class RefreshRecapsTests(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["env"]["OPENAI_API_KEY"], "ai-secret")
         log = (self.root / "collector.log").read_text()
         self.assertEqual(log, "[REDACTED] and [REDACTED] were passed")
+
+
+
+class ModularRefreshRecapsTests(unittest.TestCase):
+    setUp = RefreshRecapsTests.setUp
+    make_nfl = RefreshRecapsTests.make_nfl
+    def sites(self):
+        return json.loads((Path(__file__).parents[1] / 'config/active-sites.json').read_text())
+
+    def make_team_nfl(self, site, path):
+        updated = '2026-09-12T04:00:00Z'
+        data = {'season': 2026, 'updatedAt': updated,
+                'team': {'id': site['balldontlie_team_id'] or 99, 'abbreviation': site['abbreviation']},
+                'gamesRegular': [], 'gamesPostseason': []}
+        filename = site['slug'] + '.json'
+        write_json(path / filename, data)
+        write_json(path / 'manifest.json', {'schema_version': 1, 'team': site['slug'], 'runId': 'nfl-fixture',
+                   'season': 2026, 'updatedAt': updated, 'files': {filename: runner.file_hash(path / filename)}})
+
+    @unittest.skipUnless(shutil.which("node"), "Real writer integration runs separately in Node; Airflow images need no Node runtime")
+    def test_team_snapshots_and_same_run_receipts_are_isolated(self):
+        from subprocess import run
+        outputs = {}
+        for slug, raw in self.sites().items():
+            site = runner.site_settings(raw)
+            runtime = self.root / slug / 'recaps'
+            runtime.mkdir(parents=True)
+            nfl = self.root / slug / 'nfl'
+            self.make_team_nfl(site, nfl)
+            def offline_node(work, _keys, _key, selected):
+                # Real writer, empty fixture schedule: networking is replaced with a throwing fetch.
+                env = {'TEAM': selected['slug'], 'NFL_TEAM_ABBR': selected['abbreviation'],
+                       'NFL_TEAM_ID': str(selected['balldontlie_team_id'] or 99),
+                       'TEAM_NAME': selected['name'], 'TEAM_CITY': selected['city'],
+                       'NFL_DATA_FILE': selected['slug'] + '.json',
+                       'RECAP_GENERATION_REPORT': str(work / 'recap-report.json')}
+                script = 'import {generateGameRecaps} from "./scripts/generate-game-recaps.mjs"; await generateGameRecaps({env:' + json.dumps(env) + ',fetchImpl:async()=>{throw Error("Unexpected network request")}});'
+                run(['node', '--input-type=module', '-e', script], cwd=work, check=True, capture_output=True)
+            with patch.object(runner, 'SOURCE', self.source), patch.object(runner, 'run_node', side_effect=offline_node):
+                receipt = runner.collect('same-airflow-run', self.source, runtime, nfl, site)
+            self.assertEqual(receipt['team'], slug)
+            self.assertEqual(receipt['generatedCount'], 0)
+            self.assertEqual(receipt['openaiRequestCount'], 0)
+            self.assertEqual(receipt['requestCount'], 0)
+            outputs[slug] = receipt['snapshotPath']
+            with patch.object(runner, 'run_node', side_effect=AssertionError('Replay must not run writer')):
+                replay = runner.collect('same-airflow-run', self.source, runtime, nfl, site)
+            self.assertEqual(replay, receipt)
+            changed = dict(site, prompts={**site['prompts'], 'recap': 'Changed prompt'})
+            with self.assertRaisesRegex(ValueError, 'different site settings'):
+                runner.collect('same-airflow-run', self.source, runtime, nfl, changed)
+        self.assertEqual(len(set(outputs.values())), len(self.sites()))
+
+    def test_other_teams_never_seed_from_seattle_authored_content(self):
+        site = runner.site_settings(self.sites()['broncos'])
+        nfl = self.root / 'denver-nfl'
+        self.make_team_nfl(site, nfl)
+        write_json(self.source / 'src/data/nfl/gameRecaps.json', {
+            'season': 2026, 'recaps': {'seattle-game': complete('Seattle keeps its own history.')},
+        })
+        work = self.root / 'denver-work'
+        seed = runner.stage_source(self.source, work, self.runtime / 'current', nfl, 2026, site)
+        self.assertEqual(seed['recaps'], {})
+        self.assertEqual(seed['team'], 'broncos')
+        self.assertFalse((work / 'src/data/nfl/seahawks.json').exists())
+        self.assertTrue((work / 'src/data/nfl/broncos.json').is_file())
+
+    def test_matching_filename_cannot_mask_wrong_nfl_team(self):
+        site = runner.site_settings(self.sites()['broncos'])
+        nfl = self.root / 'denver-nfl'
+        self.make_team_nfl(site, nfl)
+        filename = nfl / 'broncos.json'
+        data = runner.load_object(filename)
+        data['team']['abbreviation'] = 'SEA'
+        write_json(filename, data)
+        manifest = runner.load_object(nfl / 'manifest.json')
+        manifest['files']['broncos.json'] = runner.file_hash(filename)
+        write_json(nfl / 'manifest.json', manifest)
+        with self.assertRaisesRegex(ValueError, 'identify the Broncos'):
+            runner.select_nfl_snapshot(nfl, site)
+
+    def test_past_team_snapshot_rejected_before_prose_is_staged(self):
+        site = runner.site_settings(self.sites()['broncos'])
+        snapshot = self.root / 'wrong-team'
+        updated = '2026-09-12T04:00:00Z'
+        write_json(snapshot / 'gameRecaps.json', {'season': 2026, 'updatedAt': updated,
+                   'team': 'seahawks', 'recaps': {}})
+        write_json(snapshot / 'manifest.json', {'schema_version': 1, 'runId': 'old', 'season': 2026,
+                   'updatedAt': updated, 'team': 'seahawks',
+                   'files': {'gameRecaps.json': runner.file_hash(snapshot / 'gameRecaps.json')}})
+        with self.assertRaisesRegex(ValueError, 'different team'):
+            runner.verify_snapshot(snapshot, site=site)
 
 
 if __name__ == "__main__":

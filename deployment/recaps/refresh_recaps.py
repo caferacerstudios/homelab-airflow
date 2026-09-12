@@ -29,6 +29,42 @@ NFL_CURRENT = Path("/var/lib/sfz-nfl/current")
 IMAGE = "node:22-bookworm"
 DOCKER_LABEL = "com.caferacerstudios.pipeline=sfz-recaps"
 KEY_NAMES = ("BALLDONTLIE_API_KEY", "OPENAI_API_KEY")
+HERE = Path(__file__).resolve().parent
+WRITER_FILES = ("generate-game-recaps.mjs", "nfl-api-client.mjs", "recap-artifacts.mjs", "recap-schedule.mjs")
+
+
+def site_settings(site=None, *, authorize=False):
+    if site is None:
+        return dict(slug="seahawks", name="Seahawks", city="Seattle", abbreviation="SEA",
+                    balldontlie_team_id=31, website_root=str(SOURCE),
+                    nfl_snapshot_dir=str(NFL_CURRENT), recap_snapshot_dir=str(RUNTIME / "current"), prompts={})
+    if not isinstance(site, dict):
+        raise ValueError("Recap site must be an object")
+    config_path = str(HERE.parents[1] / "dags")
+    if config_path not in sys.path:
+        sys.path.insert(0, config_path)
+    if authorize:
+        shared = Path("/opt/fanzone-shared")
+        if not shared.is_dir():
+            shared = HERE.parent / "shared"
+        sys.path.insert(0, str(shared))
+        from fan_zone_host import authorize_site
+        return authorize_site(site, "recaps")
+    from fan_zone_config import validate_site
+    return validate_site(site.get("slug"), site)
+
+
+def assert_team(value, site):
+    actual = value.get("team")
+    if actual is None and site["slug"] == "seahawks":
+        return
+    if actual != site["slug"]:
+        raise ValueError("Recap snapshot belongs to a different team")
+
+
+def request_hash(site):
+    return hashlib.sha256(json.dumps(site, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
 
 
 def command(args: list[str], **kwargs) -> str:
@@ -75,8 +111,6 @@ def source_commit(source: Path) -> str:
         raise ValueError("The production source must be its own Git checkout")
     if command(["git", "-C", str(source), "branch", "--show-current"]) != "main":
         raise ValueError("Production source must already be on main; no branch changes were made")
-    if command(["git", "-C", str(source), "status", "--porcelain", "--", "scripts/generate-game-recaps.mjs", "scripts/nfl-api-client.mjs", "scripts/import-recap-snapshot.mjs", "src/lib/schedule.mjs", "src/lib/recap-artifacts.mjs"]):
-        raise ValueError("Commit or resolve local recap source changes before generating; source was left unchanged")
     return command(["git", "-C", str(source), "rev-parse", "HEAD"])
 
 
@@ -104,23 +138,28 @@ def valid_season(value) -> bool:
     return type(value) is int and 2002 <= value <= 2200
 
 
-def select_nfl_snapshot(current: Path) -> tuple[Path, dict]:
+def select_nfl_snapshot(current: Path, site=None) -> tuple[Path, dict]:
+    selected = site_settings(site)
+    filename = selected["slug"] + ".json"
     # Resolve once so an NFL publication cannot mix files from two runs.
     snapshot = current.resolve(strict=True)
     manifest = load_object(snapshot / "manifest.json")
     files = manifest.get("files")
     if (manifest.get("schema_version") != 1 or not isinstance(manifest.get("runId"), str)
             or not manifest["runId"] or not valid_season(manifest.get("season"))
-            or not isinstance(files, dict) or "seahawks.json" not in files):
+            or not isinstance(files, dict) or filename not in files):
         raise ValueError("NFL snapshot manifest identity is invalid")
     timestamp(manifest.get("updatedAt"))
-    if file_hash(snapshot / "seahawks.json") != files["seahawks.json"]:
-        raise ValueError("NFL snapshot checksum mismatch: seahawks.json")
-    data = load_object(snapshot / "seahawks.json")
+    if manifest.get("team") not in (selected["slug"], None if selected["slug"] == "seahawks" else selected["slug"]):
+        raise ValueError("NFL manifest belongs to a different team")
+    if file_hash(snapshot / filename) != files[filename]:
+        raise ValueError("NFL snapshot checksum mismatch: " + filename)
+    data = load_object(snapshot / filename)
     team = data.get("team", {})
-    if (not isinstance(team, dict) or team.get("abbreviation") != "SEA"
-            or type(team.get("id")) is not int or team["id"] < 1):
-        raise ValueError("NFL snapshot must identify the Seahawks")
+    if (not isinstance(team, dict) or team.get("abbreviation") != selected["abbreviation"]
+            or type(team.get("id")) is not int or team["id"] < 1
+            or (selected.get("balldontlie_team_id") is not None and team["id"] != selected["balldontlie_team_id"])):
+        raise ValueError("NFL snapshot must identify the " + selected["name"])
     if data.get("fixture") is True or data.get("season") != manifest["season"] or data.get("updatedAt") != manifest["updatedAt"]:
         raise ValueError("NFL snapshot freshness/season mismatch or fixture data")
     if not isinstance(data.get("gamesRegular"), list) or not isinstance(data.get("gamesPostseason"), list):
@@ -128,17 +167,16 @@ def select_nfl_snapshot(current: Path) -> tuple[Path, dict]:
     return snapshot, manifest
 
 
-def preflight(source: Path, runtime: Path, nfl_current: Path) -> tuple[str, dict, Path, dict]:
+def preflight(source: Path, runtime: Path, nfl_current: Path, site=None) -> tuple[str, dict, Path, dict]:
     commit = source_commit(source)
-    script = (source / "scripts/generate-game-recaps.mjs").read_text()
-    if "RECAP_GENERATION_REPORT" not in script or not (source / "scripts/import-recap-snapshot.mjs").is_file():
-        raise ValueError("Deploy the recap generator/report and importer support to main first")
-    if not (source / "src/lib").is_dir():
-        raise ValueError("Production source is missing src/lib")
-    keys = read_api_keys(source / ".env")
+    for filename in WRITER_FILES:
+        if not (HERE / filename).is_file():
+            raise ValueError("Install the Airflow-owned recap writer and helpers first: " + filename)
+    # Every team uses the existing credential file; it is never copied to a build.
+    keys = read_api_keys((SOURCE if site is not None else source) / ".env")
     if not runtime.is_dir() or not os.access(runtime, os.W_OK | os.X_OK):
         raise ValueError(f"Runtime directory must exist and be writable by the collector user: {runtime}")
-    snapshot, manifest = select_nfl_snapshot(nfl_current)
+    snapshot, manifest = select_nfl_snapshot(nfl_current, site)
     command(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=30)
     try:
         command(["docker", "image", "inspect", IMAGE, "--format", "{{.Id}}"], timeout=30)
@@ -159,7 +197,8 @@ def complete_recap(entry: dict) -> bool:
                 and isinstance(entry.get("bullets"), list) and entry["bullets"])
 
 
-def verify_snapshot(snapshot: Path, run_id: str | None = None) -> dict:
+def verify_snapshot(snapshot: Path, run_id: str | None = None, site=None) -> dict:
+    selected = site_settings(site)
     manifest = load_object(snapshot / "manifest.json")
     if (manifest.get("schema_version") != 1 or not isinstance(manifest.get("runId"), str)
             or not manifest["runId"] or (run_id is not None and manifest["runId"] != run_id)
@@ -171,46 +210,65 @@ def verify_snapshot(snapshot: Path, run_id: str | None = None) -> dict:
         raise ValueError("Recap snapshot manifest file list is invalid")
     if file_hash(snapshot / "gameRecaps.json") != files["gameRecaps.json"]:
         raise ValueError("Recap snapshot checksum mismatch: gameRecaps.json")
+    assert_team(manifest, selected)
     data = load_recaps(snapshot / "gameRecaps.json")
+    assert_team(data, selected)
+    for entry in data["recaps"].values():
+        assert_team(entry, selected)
     if data.get("season") != manifest["season"] or data.get("updatedAt") != manifest["updatedAt"]:
         raise ValueError("Recap snapshot freshness/season mismatch")
     return manifest
 
 
-def stage_source(source: Path, work: Path, current: Path, nfl_snapshot: Path, season: int) -> dict:
-    shutil.copytree(source / "scripts", work / "scripts")
-    shutil.copytree(source / "src/lib", work / "src/lib")
+def stage_source(source: Path, work: Path, current: Path, nfl_snapshot: Path, season: int, site=None) -> dict:
+    selected = site_settings(site)
+    (work / "scripts").mkdir(parents=True)
+    for filename in WRITER_FILES:
+        shutil.copy2(HERE / filename, work / "scripts" / filename)
     data = work / "src/data/nfl"
     data.mkdir(parents=True)
-    shutil.copy2(nfl_snapshot / "seahawks.json", data / "seahawks.json")
+    shutil.copy2(nfl_snapshot / (selected["slug"] + ".json"), data / (selected["slug"] + ".json"))
     seed: dict = {"season": season, "updatedAt": None, "recaps": {}}
+    if site is not None:
+        seed["team"] = selected["slug"]
     if current.exists() or current.is_symlink():
         previous = current.resolve(strict=True)
-        verify_snapshot(previous)
+        verify_snapshot(previous, site=site)
         seed = load_recaps(previous / "gameRecaps.json")
     source_recaps = source / "src/data/nfl/gameRecaps.json"
-    if source_recaps.is_file():
+    if selected["slug"] == "seahawks" and source_recaps.is_file():
         authored = load_recaps(source_recaps)
+        assert_team(authored, selected)
         for game_id, entry in authored["recaps"].items():
+            assert_team(entry, selected)
             # Preserve all historical entries, adding authored edits when complete.
             if game_id not in seed["recaps"] or complete_recap(entry):
                 seed["recaps"][game_id] = entry
     seed["season"] = season
+    if site is not None:
+        seed["team"] = selected["slug"]
     (data / "gameRecaps.json").write_text(json.dumps(seed, indent=2) + "\n")
     return seed
 
 
-def run_node(work: Path, keys: dict[str, str], run_key: str) -> None:
+def run_node(work: Path, keys: dict[str, str], run_key: str, site=None) -> None:
+    selected = site_settings(site)
     if command(["docker", "ps", "--filter", f"label={DOCKER_LABEL}", "--format", "{{.ID}}"]):
         raise ValueError("A previous recap generator container is still running; no second run was started")
     name = f"sfz-recaps-{run_key[:24]}-{uuid.uuid4().hex[:8]}"
     env = os.environ.copy()
     env.update(keys)
+    snapshot = load_object(work / "src/data/nfl" / (selected["slug"] + ".json"))
+    env.update(TEAM=selected["slug"], NFL_TEAM_ABBR=selected["abbreviation"],
+               NFL_TEAM_ID=str(snapshot["team"]["id"]), TEAM_NAME=selected["name"], TEAM_CITY=selected["city"],
+               NFL_DATA_FILE=selected["slug"] + ".json", RECAP_PROMPT=selected.get("prompts", {}).get("recap", ""))
     args = [
         "docker", "run", "--rm", "--pull=never", "--name", name,
         "--label", DOCKER_LABEL, "--read-only", "--user", f"{os.getuid()}:{os.getgid()}",
         "--mount", f"type=bind,src={work},dst=/app", "--workdir", "/app",
         "--env", "BALLDONTLIE_API_KEY", "--env", "OPENAI_API_KEY",
+        "--env", "TEAM", "--env", "NFL_TEAM_ABBR", "--env", "NFL_TEAM_ID",
+        "--env", "TEAM_NAME", "--env", "TEAM_CITY", "--env", "NFL_DATA_FILE", "--env", "RECAP_PROMPT",
         "--env", "NFL_REQUEST_INTERVAL_MS=15000",
         "--env", "RECAP_GENERATION_REPORT=/app/recap-report.json",
         IMAGE, "node", "scripts/generate-game-recaps.mjs",
@@ -235,7 +293,8 @@ def run_node(work: Path, keys: dict[str, str], run_key: str) -> None:
         raise RuntimeError(f"Recap generator exited {process.returncode}; inspect {work / 'collector.log'}")
 
 
-def validate_outputs(work: Path, started: datetime, season: int, seed: dict) -> tuple[dict, Path]:
+def validate_outputs(work: Path, started: datetime, season: int, seed: dict, site=None) -> tuple[dict, Path]:
+    selected = site_settings(site)
     report = load_object(work / "recap-report.json")
     if report.get("schema_version") != 1 or report.get("status") != "success":
         raise ValueError("Generator did not report successful recap generation")
@@ -252,6 +311,10 @@ def validate_outputs(work: Path, started: datetime, season: int, seed: dict) -> 
         raise ValueError("Generator report must identify its model")
     data_path = work / "src/data/nfl/gameRecaps.json"
     data = load_recaps(data_path)
+    assert_team(report, selected)
+    assert_team(data, selected)
+    for entry in data["recaps"].values():
+        assert_team(entry, selected)
     if data.get("updatedAt") != report["updatedAt"] or data.get("season") != season:
         raise ValueError("Generated recap freshness/season mismatch")
     if not set(seed["recaps"]) <= set(data["recaps"]):
@@ -265,8 +328,9 @@ def validate_outputs(work: Path, started: datetime, season: int, seed: dict) -> 
     return report, data_path
 
 
-def collect(run_id: str, source: Path = SOURCE, runtime: Path = RUNTIME, nfl_current: Path = NFL_CURRENT) -> dict:
-    if not run_id or len(run_id) > 512:
+def collect(run_id: str, source: Path = SOURCE, runtime: Path = RUNTIME, nfl_current: Path = NFL_CURRENT, site=None) -> dict:
+    selected = site_settings(site)
+    if not isinstance(run_id, str) or not run_id.strip() or len(run_id.encode()) > 512 or any(ord(c) < 32 or ord(c) == 127 for c in run_id):
         raise ValueError("run-id must contain between 1 and 512 characters")
     run_key = hashlib.sha256(run_id.encode()).hexdigest()
     run_dir = runtime / "runs" / run_key
@@ -277,23 +341,26 @@ def collect(run_id: str, source: Path = SOURCE, runtime: Path = RUNTIME, nfl_cur
         except BlockingIOError:
             raise RuntimeError("Another recap generation is running; no new run was started") from None
         if snapshot.exists():
-            manifest = verify_snapshot(snapshot, run_id)
+            manifest = verify_snapshot(snapshot, run_id, site)
+            if site is not None and manifest.get("requestHash") != request_hash(selected):
+                raise ValueError("This recap run already used different site settings; inspect the receipt before retrying")
             current = runtime / "current"
             # Recover interrupted publication without rolling back a newer snapshot.
-            if not current.exists() or timestamp(verify_snapshot(current.resolve())["updatedAt"]) <= timestamp(manifest["updatedAt"]):
+            if not current.exists() or timestamp(verify_snapshot(current.resolve(), site=site)["updatedAt"]) <= timestamp(manifest["updatedAt"]):
                 publish_link(snapshot, runtime)
             return {**manifest, "snapshotPath": str(snapshot)}
-        commit, keys, nfl_snapshot, nfl_manifest = preflight(source, runtime, nfl_current)
+        commit, keys, nfl_snapshot, nfl_manifest = preflight(source, runtime, nfl_current, site)
         run_dir.mkdir(parents=True, exist_ok=True)
         work = run_dir / f"work-{time.time_ns()}"
-        seed = stage_source(source, work, runtime / "current", nfl_snapshot, nfl_manifest["season"])
+        seed = stage_source(source, work, runtime / "current", nfl_snapshot, nfl_manifest["season"], site)
         if source_commit(source) != commit:
             raise RuntimeError("Source commit changed during staging; no API calls were started")
-        if file_hash(work / "src/data/nfl/seahawks.json") != nfl_manifest["files"]["seahawks.json"]:
+        filename = selected["slug"] + ".json"
+        if file_hash(work / "src/data/nfl" / filename) != nfl_manifest["files"][filename]:
             raise ValueError("NFL input changed during staging; no API calls were started")
         started = datetime.now(timezone.utc)
-        run_node(work, keys, run_key)
-        report, data_path = validate_outputs(work, started, nfl_manifest["season"], seed)
+        run_node(work, keys, run_key, site) if site is not None else run_node(work, keys, run_key)
+        report, data_path = validate_outputs(work, started, nfl_manifest["season"], seed, site)
         pending = run_dir / f"snapshot-{uuid.uuid4().hex}.tmp"
         pending.mkdir()
         shutil.copy2(data_path, pending / "gameRecaps.json")
@@ -306,11 +373,13 @@ def collect(run_id: str, source: Path = SOURCE, runtime: Path = RUNTIME, nfl_cur
             **{name: report[name] for name in ("generatedCount", "generatedGameIds", "requestCount", "openaiRequestCount", "model")},
             "files": {"gameRecaps.json": file_hash(pending / "gameRecaps.json")},
         }
+        if site is not None:
+            manifest.update(team=selected["slug"], requestHash=request_hash(selected))
         with (pending / "manifest.json").open("w") as output:
             output.write(json.dumps(manifest, indent=2) + "\n")
             output.flush()
             os.fsync(output.fileno())
-        verify_snapshot(pending, run_id)
+        verify_snapshot(pending, run_id, site)
         sync_directory(pending)
         pending.rename(snapshot)
         sync_directory(run_dir)
@@ -342,16 +411,21 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="Read-only preflight; no API requests")
     mode.add_argument("--run-id", help="Airflow run ID; successful repeats reuse the verified receipt")
+    parser.add_argument("--site-json", help="Active-site configuration supplied by the restricted Airflow request")
     args = parser.parse_args()
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, interrupted)
     try:
+        site = site_settings(json.loads(args.site_json), authorize=True) if args.site_json else None
+        selected = site_settings(site)
+        source = Path(selected["website_root"])
+        runtime, nfl_current = Path(selected["recap_snapshot_dir"]).parent, Path(selected["nfl_snapshot_dir"])
         if args.check:
-            commit, _, _, nfl_manifest = preflight(SOURCE, RUNTIME, NFL_CURRENT)
+            commit, _, _, nfl_manifest = preflight(source, runtime, nfl_current, site)
             print(json.dumps({"status": "ready", "sourceCommit": commit, "image": IMAGE,
-                              "nflSourceRunId": nfl_manifest["runId"], "apiRequests": 0}))
+                              "nflSourceRunId": nfl_manifest["runId"], "team": selected["slug"], "apiRequests": 0}))
         else:
-            print("SFZ_RECAP_RECEIPT=" + json.dumps(collect(args.run_id), separators=(",", ":")))
+            print("SFZ_RECAP_RECEIPT=" + json.dumps(collect(args.run_id, source, runtime, nfl_current, site), separators=(",", ":")))
         return 0
     except BrokenPipeError:
         return 0

@@ -129,6 +129,85 @@ class NflCrossLanguageContractTest(unittest.TestCase):
                 self.assertEqual(recaps["recaps"]["1392216"]["body"], "Current edited text")
                 self.assertEqual(recaps["recaps"]["1392216"]["game"]["id"], GAME["id"])
 
+@unittest.skipUnless(shutil.which("node") and (WEBSITE / "scripts/nfl-api-client.mjs").is_file(),
+                     "Needs Node and the production website checkout; set SFZ_WEBSITE_SOURCE")
+class ModularNflContractTest(unittest.TestCase):
+    def test_five_teams_keep_independent_snapshots_and_real_home_away_identity(self):
+        teams = [("seahawks", "Seattle", "Seahawks", "SEA", 31),
+                 ("broncos", "Denver", "Broncos", "DEN", 15),
+                 ("packers", "Green Bay", "Packers", "GB", 9),
+                 ("vikings", "Minnesota", "Vikings", "MIN", 18),
+                 ("chiefs", "Kansas City", "Chiefs", "KC", 16)]
+        # IDs below are fixture identities, not deployable team-ID configuration.
+        with tempfile.TemporaryDirectory(prefix="nfl-five-teams-") as directory:
+            folder = Path(directory)
+            source = folder / "source"
+            shutil.copytree(WEBSITE / "scripts", source / "scripts")
+            shutil.copytree(WEBSITE / "src/lib", source / "src/lib")
+            write_json(source / "src/data/team/roster.json", {"players": [{"name": "Seattle roster sentinel"}]})
+            write_json(source / "src/data/nfl/seahawks.json", {"season": 2026, "games": [GAME]})
+            write_json(source / "src/data/nfl/gameRecaps.json", {"recaps": {"1392216": {"title": "Seattle-only recap sentinel"}}})
+            before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+            for slug, city, name, abbreviation, identifier in teams:
+                with self.subTest(team=slug):
+                    runtime = folder / slug
+                    runtime.mkdir()
+                    site = {"slug": slug, "city": city, "name": name, "abbreviation": abbreviation,
+                            "balldontlie_team_id": None, "nfl_snapshot_dir": str(runtime / "current"),
+                            "division": "NFC West" if slug == "seahawks" else "AFC West" if slug in ("broncos", "chiefs") else "NFC North"}
+                    team = {"id": identifier, "abbreviation": abbreviation, "full_name": city + " " + name}
+                    game = {**GAME, "id": identifier * 100 + 1, "home_team": team, "status": "Final", "home_team_score": 24, "visitor_team_score": 21}
+                    seen = []
+                    def execute(work, api_key, run_key, selected=None):
+                        selected = selected or site
+                        mock = MOCK_HTTP.replace(json.dumps(GAME), json.dumps(game)).replace(json.dumps(TEAM), json.dumps(team)).replace("team_id:31", f"team_id:{identifier}")
+                        preload = work / "mock-http.mjs"
+                        preload.write_text(mock)
+                        result = subprocess.run(["node", "--import", str(preload), "scripts/fetch-nfl.mjs"], cwd=work,
+                            env={**os.environ, "BALLDONTLIE_API_KEY": "test-key", "NFL_FETCH_STRICT": "1", "NFL_FETCH_REPORT": str(work / "fetch-report.json"),
+                                 "NFL_REQUEST_INTERVAL_MS": "0", "NFL_SEASON": "2026", "NFL_TEAM_ABBR": abbreviation},
+                            check=True, capture_output=True, text=True)
+                        seen.append(result.stdout)
+                    with patch.object(runner, "site_settings", return_value=site), patch.object(runner, "preflight", return_value=("f" * 40, "test-key")), patch.object(runner, "source_commit", return_value="f" * 40), patch.object(runner, "run_node", side_effect=execute):
+                        receipt = runner.collect("one-shared-airflow-run", source, runtime, site)
+                        again = runner.collect("one-shared-airflow-run", source, runtime, site)
+                    self.assertEqual(receipt, again)
+                    self.assertEqual(len(seen), 1)
+                    self.assertEqual(receipt["team"], slug)
+                    combined = json.loads((runtime / "current" / (slug + ".json")).read_text())
+                    self.assertEqual(combined["team"]["id"], identifier)
+                    self.assertTrue(combined["gamesRegular"][0]["isHome"])
+                    self.assertEqual(combined["gamesRegular"][0]["opponent"]["abbreviation"], "NE")
+                    standings = json.loads((runtime / "current" / "standings.json").read_text())
+                    rows = standings["phases"]["regular"]["rows"]
+                    self.assertEqual([row["abbreviation"] for row in rows], [abbreviation])
+                    self.assertEqual(rows[0]["wins"], 1)
+                    if slug != "seahawks":
+                        self.assertEqual(combined["currentRoster"], [])
+                        self.assertNotIn("gameRecaps.json", receipt["files"])
+                        self.assertFalse((runtime / "current" / "seahawks.json").exists())
+                    self.assertEqual(before, {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()})
+
+    def test_wrong_configured_api_identity_stops_before_games_request(self):
+        with tempfile.TemporaryDirectory(prefix="nfl-identity-") as directory:
+            folder = Path(directory)
+            source = folder / "source"
+            shutil.copytree(WEBSITE / "scripts", source / "scripts")
+            shutil.copytree(WEBSITE / "src/lib", source / "src/lib")
+            site = {"slug": "broncos", "city": "Denver", "name": "Broncos", "abbreviation": "DEN", "balldontlie_team_id": 123456, "division": "AFC West"}
+            runner.adapt_staged_source(source, site)
+            preload = source / "mock-http.mjs"
+            preload.write_text('''globalThis.fetch = async (url) => {
+              if (!url.pathname.endsWith('/teams')) throw new Error('SHOULD_NOT_FETCH_GAMES');
+              return new Response(JSON.stringify({data:[{id:15,abbreviation:'DEN',full_name:'Denver Broncos'}]}));
+            };''')
+            result = subprocess.run(["node", "--import", str(preload), "scripts/fetch-nfl.mjs"], cwd=source,
+                env={**os.environ, "BALLDONTLIE_API_KEY": "test-key", "NFL_FETCH_STRICT": "1", "NFL_REQUEST_INTERVAL_MS": "0", "NFL_TEAM_ABBR": "DEN"},
+                capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("API team identity does not match", result.stderr)
+            self.assertNotIn("SHOULD_NOT_FETCH_GAMES", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

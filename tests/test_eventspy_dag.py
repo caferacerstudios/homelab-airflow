@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pendulum
 from airflow.dag_processing.dagbag import BundleDagBag
-from airflow.exceptions import AirflowSkipException
+from airflow.sdk.exceptions import AirflowSkipException
 from airflow.sdk import Variable
 from airflow.serialization.serialized_objects import DagSerialization
 
@@ -28,11 +28,14 @@ class DagTests(unittest.TestCase):
 
     def test_visible_unmapped_team_nodes_and_serialized_titles(self):
         dag = self.load()
-        self.assertEqual(dag.task_ids, ["collect_ticket_prices_broncos", "save_run_receipt_broncos",
-                                       "collect_ticket_prices_seahawks", "save_run_receipt_seahawks"])
+        sites = sites_fixture()
+        self.assertEqual(dag.task_ids, [task_id for slug in sorted(sites)
+                                       for task_id in (f"collect_ticket_prices_{slug}", f"save_run_receipt_{slug}")])
+        self.assertEqual(len(dag.task_ids), 10)
         encoded = DagSerialization.to_dict(dag)
         restored = DagSerialization.deserialize_dag(encoded["dag"], encoded.get("client_defaults"))
-        for slug, name in (("seahawks", "Seattle Seahawks"), ("broncos", "Denver Broncos")):
+        for slug, site in sites.items():
+            name = f"{site['city']} {site['name']}"
             task = dag.get_task(f"collect_ticket_prices_{slug}")
             self.assertFalse(task.is_mapped)
             self.assertEqual(task.op_args[0]["slug"], slug)
@@ -46,8 +49,11 @@ class DagTests(unittest.TestCase):
         expected = self.load().task_ids
         self.assertEqual(self.load(dict(reversed(list(sites.items())))).task_ids, expected)
         sites["broncos"]["enabled"] = False
-        self.assertEqual(self.load(sites).task_ids, expected[2:])
+        self.assertEqual(self.load(sites).task_ids, [task_id for task_id in expected if not task_id.endswith("_broncos")])
         sites["seahawks"].pop("eventspy")
+        self.assertEqual(self.load(sites).task_ids, [task_id for task_id in expected if not task_id.endswith(("_broncos", "_seahawks"))])
+        for slug in ("packers", "vikings", "chiefs"):
+            sites[slug].pop("eventspy")
         self.assertEqual(self.load(sites).task_ids, [])
 
     def test_preserved_schedule_across_dst_and_no_catchup(self):

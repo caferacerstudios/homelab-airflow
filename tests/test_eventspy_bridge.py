@@ -20,11 +20,9 @@ spec.loader.exec_module(bridge)
 
 
 def sites_fixture():
+    # Exercise the checked-in five-team configuration, including each team's
+    # distinct output root. Do not remap additional teams to Denver's directory.
     sites = json.loads((ROOT / "config/active-sites.json").read_text())
-    for slug, site in sites.items():
-        site["eventspy"] = {"output_dir": f"/var/lib/{'sfz' if slug == 'seahawks' else 'boncosfz'}-eventspy-mirror/dev/public",
-                            "coverage_file": f"{slug}.json", "schedule_file": "/var/lib/sfz-nfl/current/seahawks.json"
-                            if slug == "seahawks" else f"/var/lib/fanzone-eventspy/schedules/{slug}.json"}
     return validate_sites(sites)
 
 
@@ -97,13 +95,14 @@ class BridgeTests(unittest.TestCase):
         return json.loads((self.queue / "responses" / path.name).read_text())
 
     def test_completed_game_skip_is_success_and_outputs_remain_team_specific(self):
-        for slug in ("seahawks", "broncos"):
+        for slug in self.sites:
             receipt = self.request(slug)
             self.assertEqual(receipt["status"], "success")
             self.assertEqual(receipt["summary"]["skipped"], 1)
             self.assertEqual(receipt["team"], slug)
-        self.assertEqual([args[0] for args in self.host.calls], ["seahawks", "broncos"])
-        self.assertEqual(self.app.status()["attempts"], 2)
+        self.assertEqual([args[0] for args in self.host.calls], list(self.sites))
+        self.assertEqual(self.app.status()["attempts"], len(self.sites))
+        self.assertEqual(len({site["eventspy"]["output_dir"] for site in self.sites.values()}), len(self.sites))
 
     def test_same_request_and_changed_configuration_cannot_repeat_team_slot(self):
         first = self.request()
@@ -214,7 +213,8 @@ class ConfigTests(unittest.TestCase):
     def test_paths_cannot_cross_teams_and_original_news_only_variable_is_valid(self):
         sites = sites_fixture()
         self.assertEqual(sites["seahawks"]["eventspy"]["output_dir"], "/var/lib/sfz-eventspy-mirror/dev/public")
-        news_only = deepcopy(sites)
+        # This assertion deliberately covers the original two-team Variable.
+        news_only = {slug: deepcopy(sites[slug]) for slug in ("seahawks", "broncos")}
         for site in news_only.values():
             site.pop("eventspy")
         self.assertEqual(set(validate_sites(news_only)), {"seahawks", "broncos"})

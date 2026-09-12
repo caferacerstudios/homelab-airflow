@@ -1,10 +1,13 @@
 """Offline schedule tests; all API replies below are synthetic test data only."""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import hashlib
 import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -55,6 +58,202 @@ class ScheduleTests(unittest.TestCase):
                    "cache_root": self.root / "schedules", "api_key_path": self.key_path}
         options.update(overrides)
         return schedules.ensure_schedule(self.site, self.coverage, **options)
+
+    def publish_nfl(self, *, mutate=None, updated=None, run="one"):
+        """Write a synthetic test run using the actual NFL producer manifest shape."""
+        runtime = self.root / "broncos-nfl"
+        self.site["nfl_snapshot_dir"] = str(runtime / "current")
+        snapshot = runtime / "runs" / run / "snapshot"
+        snapshot.mkdir(parents=True)
+        stamp = (updated or self.now).isoformat()
+        games = []
+        for original in self.games:
+            game = deepcopy(original)
+            game["id"] = str(game["id"])
+            game["homeTeam"] = game.pop("home_team")
+            game["awayTeam"] = game.pop("visitor_team")
+            game["phase"] = "regular"
+            game["state"] = "upcoming"
+            game["startsAt"] = game["date"]
+            game["dateConfirmed"] = game["date"] is not None
+            game["timeConfirmed"] = game["date"] is not None
+            if game["date"]:
+                game["date"] = datetime.fromisoformat(game["date"]).astimezone(ZoneInfo("America/Los_Angeles")).date().isoformat()
+            games.append(game)
+        games.append({"id": "bye-2026-10", "week": 10, "season": 2026, "bye": True})
+        common = {"fixture": False, "updatedAt": stamp, "season": 2026}
+        documents = {
+            "broncos.json": {**common, "team": deepcopy(self.team), "sourceSeason": 2026,
+                "gamesRegular": games, "games": games,
+                "currentRoster": [{"testRoster": True}], "playerSeasonStats": [{"testStats": True}],
+                "seasons": [{"season": 2025, "games": [{"id": "not-current"}]}]},
+            "players.json": {**common, "team": deepcopy(self.team), "playerSeasonStats": [{"testStats": True}]},
+            "standings.json": {**common, "phases": {}},
+        }
+        if mutate:
+            mutate(documents)
+        files = {}
+        for name, value in documents.items():
+            encoded = (json.dumps(value) + "\n").encode()
+            (snapshot / name).write_bytes(encoded)
+            files[name] = hashlib.sha256(encoded).hexdigest()
+        manifest = {"schema_version": 1, "team": "broncos", "season": 2026, "updatedAt": stamp,
+                    "runId": run, "files": files}
+        (snapshot / "manifest.json").write_text(json.dumps(manifest))
+        current = runtime / "current"
+        current.unlink(missing_ok=True)
+        current.symlink_to(snapshot.relative_to(runtime))
+        return snapshot
+
+    def test_fresh_full_nfl_snapshot_replaces_old_cache_without_api_or_credentials(self):
+        path = self.ensure()
+        old_cache = json.loads(path.read_text())
+        self.now += timedelta(hours=1)
+        self.publish_nfl()
+        self.key_path.unlink()
+        self.assertEqual(self.ensure(request=Mock(side_effect=AssertionError("no API")), force_refresh=True), path)
+        cached = json.loads(path.read_text())
+        self.assertNotEqual(cached["updatedAt"], old_cache["updatedAt"])
+        self.assertEqual(cached["team"], self.team)
+        self.assertEqual(len(cached["gamesRegular"]), 17)
+        self.assertEqual(cached["gamesRegular"][0]["id"], self.games[0]["id"])
+        self.assertEqual(cached["gamesRegular"][0]["startsAt"], self.games[0]["date"])
+        self.assertEqual(cached["gamesRegular"][0]["date"], self.coverage[0]["localDate"])
+        self.assertEqual(cached["gamesRegular"][0]["home_team"], self.games[0]["home_team"])
+        self.assertEqual(cached["gamesRegular"][0]["visitor_team"], self.games[0]["visitor_team"])
+        self.assertNotIn("seasons", cached)
+        self.assertNotIn("playerDirectory", cached)
+        self.assertEqual(cached["currentRoster"], [])
+        self.assertEqual(cached["playerSeasonStats"], [])
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for the collector cross-check")
+    def test_full_nfl_completed_state_skips_collection_after_deriving_cache(self):
+        def completed(documents):
+            game = documents["broncos.json"]["gamesRegular"][0]
+            game.pop("status")
+            game.pop("status_state")
+            game["state"] = "completed"
+            game["home_team_score"] = 24
+            game["visitor_team_score"] = 17
+        self.publish_nfl(mutate=completed)
+        path = self.ensure(request=Mock(side_effect=AssertionError("no API")))
+        cached = json.loads(path.read_text())
+        self.assertEqual(cached["gamesRegular"][0]["status_state"], "completed")
+        self.assertEqual(cached["gamesRegular"][0]["home_team_score"], 24)
+        module_url = (ROOT / "deployment/eventspy/collector-coverage.mjs").as_uri()
+        script = f'''import {{bindCoverageToSchedule,collectionDecision}} from {json.dumps(module_url)};
+            let input = ''; for await (const part of process.stdin) input += part;
+            const {{site,coverage,schedule}} = JSON.parse(input);
+            const binding = bindCoverageToSchedule(site,coverage,schedule)[0];
+            console.log(collectionDecision(binding).reason);'''
+        result = subprocess.run(["node", "--input-type=module", "-e", script],
+            input=json.dumps({"site": {**self.site, "city": "Denver", "name": "Broncos"},
+                              "coverage": self.coverage, "schedule": cached}),
+            text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout.strip(), "GAME_COMPLETED")
+
+    def test_missing_or_six_hour_old_full_snapshot_uses_existing_api_fallback(self):
+        self.site["nfl_snapshot_dir"] = str(self.root / "broncos-nfl/current")
+        self.ensure()
+        self.assertEqual(len(self.requests), 2)
+        self.publish_nfl(updated=self.now - timedelta(hours=6))
+        self.ensure(force_refresh=True)
+        self.assertEqual(len(self.requests), 4)
+
+    def test_full_nfl_checksum_failure_keeps_cache_and_never_uses_api_fallback(self):
+        path = self.ensure()
+        previous = path.read_bytes()
+        snapshot = self.publish_nfl()
+        (snapshot / "players.json").write_text('{}')
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"), patch.object(schedules, "read_api_key", side_effect=AssertionError):
+            self.ensure()
+        self.assertEqual(path.read_bytes(), previous)
+
+    def test_invalid_full_nfl_identity_season_fixture_or_timestamp_stops_even_when_stale(self):
+        mutations = [
+            lambda docs: docs["broncos.json"]["team"].update(abbreviation="SEA"),
+            lambda docs: docs["broncos.json"]["team"].update(id=31),
+            lambda docs: docs["players.json"]["team"].update(abbreviation="SEA"),
+            lambda docs: docs["broncos.json"].update(season=2025),
+            lambda docs: docs["broncos.json"].update(sourceSeason=2025),
+            lambda docs: docs["broncos.json"].update(fixture=True),
+            lambda docs: docs["players.json"].update(fixture=True),
+            lambda docs: docs["broncos.json"].update(updatedAt="2026-09-11T01:00:00+00:00"),
+            lambda docs: docs["broncos.json"]["gamesRegular"][0]["awayTeam"].update(id=99),
+        ]
+        self.site["balldontlie_team_id"] = self.team["id"]
+        for index, mutate in enumerate(mutations):
+            self.publish_nfl(mutate=mutate, updated=self.now - timedelta(hours=7), run=str(index))
+            with self.subTest(index=index), self.assertRaises(ValueError), patch.object(schedules, "read_api_key", side_effect=AssertionError):
+                self.ensure()
+        self.publish_nfl(updated=self.now + timedelta(minutes=1), run="future")
+        with self.assertRaisesRegex(ValueError, "future"):
+            self.ensure()
+
+    def test_full_nfl_manifest_wrong_team_or_checksum_path_is_rejected(self):
+        for index, change in enumerate((
+            {"team": "seahawks"}, {"season": 2025},
+            {"files": {"../broncos.json": "0" * 64}},
+        )):
+            snapshot = self.publish_nfl(run=str(index))
+            path = snapshot / "manifest.json"
+            manifest = json.loads(path.read_text())
+            manifest.update(change)
+            path.write_text(json.dumps(manifest))
+            with self.subTest(change=change), self.assertRaises(ValueError), patch.object(schedules, "read_api_key", side_effect=AssertionError):
+                self.ensure()
+
+    def test_full_nfl_current_cannot_escape_own_root_or_point_to_missing_run(self):
+        self.publish_nfl()
+        current = Path(self.site["nfl_snapshot_dir"])
+        foreign = self.root / "seahawks-nfl/runs/other/snapshot"
+        foreign.mkdir(parents=True)
+        for target in (foreign, current.parent / "runs/missing/snapshot"):
+            current.unlink()
+            current.symlink_to(target)
+            with self.assertRaises(ValueError), patch.object(schedules, "read_api_key", side_effect=AssertionError):
+                self.ensure()
+
+    def test_full_nfl_time_tbd_preserves_calendar_date_without_synthetic_kickoff(self):
+        def unknown_time(documents):
+            game = documents["broncos.json"]["gamesRegular"][0]
+            game["startsAt"] = None
+            game["timeConfirmed"] = False
+        self.publish_nfl(mutate=unknown_time)
+        path = self.ensure(request=Mock(side_effect=AssertionError("no API")))
+        game = json.loads(path.read_text())["gamesRegular"][0]
+        self.assertEqual(game["date"], self.coverage[0]["localDate"])
+        self.assertIsNone(game["startsAt"])
+        self.assertFalse(game["timeConfirmed"])
+
+    def test_full_nfl_uses_confirmed_instant_for_venue_date_over_display_calendar(self):
+        def differing_display_date(documents):
+            game = documents["broncos.json"]["gamesRegular"][0]
+            game["date"] = "2026-09-13"
+            game["startsAt"] = "2026-09-14T05:30:00Z"
+        self.publish_nfl(mutate=differing_display_date)
+        path = self.ensure(request=Mock(side_effect=AssertionError("no API")))
+        game = json.loads(path.read_text())["gamesRegular"][0]
+        self.assertEqual(game["date"], "2026-09-13")
+        self.assertEqual(game["startsAt"], "2026-09-14T05:30:00Z")
+
+    def test_full_nfl_member_symlinks_are_rejected(self):
+        snapshot = self.publish_nfl()
+        member = snapshot / "broncos.json"
+        foreign = self.root / "foreign.json"
+        member.rename(foreign)
+        member.symlink_to(foreign)
+        with self.assertRaisesRegex(ValueError, "regular file"):
+            self.ensure()
+
+    def test_python_coverage_alias_comparison_preserves_original_washington_abbreviations(self):
+        for source_alias, coverage_alias in (("WSH", "WAS"), ("WAS", "WSH")):
+            self.coverage[0]["homeTeamAbbreviation"] = coverage_alias
+            self.games[0]["home_team"]["abbreviation"] = source_alias
+            path = self.ensure(force_refresh=True)
+            cached = json.loads(path.read_text())
+            self.assertEqual(cached["gamesRegular"][0]["home_team"]["abbreviation"], source_alias)
 
     def test_seattle_does_not_touch_its_snapshot_or_credentials(self):
         with patch.object(schedules, "read_api_key", side_effect=AssertionError("must not read key")):

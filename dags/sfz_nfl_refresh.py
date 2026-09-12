@@ -1,4 +1,4 @@
-"""Refresh the Seahawks NFL snapshot ten times each Seattle calendar day."""
+"""Refresh each active team NFL snapshot ten times each Seattle calendar day."""
 from datetime import timedelta
 
 import pendulum
@@ -15,8 +15,10 @@ from airflow.timetables.trigger import CronTriggerTimetable
     max_active_tasks=1,
     is_paused_upon_creation=True,
     default_args={"owner": "laura", "retries": 0},
-    tags=["seahawks", "nfl", "balldontlie"],
-    doc_md="""Refresh a validated, persistent NFL snapshot on wkr. Requests are paced
+    tags=["fan-zone", "nfl", "balldontlie"],
+    doc_md="""Read fan_zone_active_sites at DAG parsing and show named tasks for
+    each enabled team. Preserve the existing ten daily Seattle-time slots.
+    Refresh validated, persistent NFL snapshots on wkr. Requests are paced
     at 15 seconds. Builds import this snapshot after the separate build cutover;
     collection alone does not update the website's static HTML. The existing
     Node normalizers are retained; orchestration and host publication are Python.
@@ -25,15 +27,18 @@ from airflow.timetables.trigger import CronTriggerTimetable
     """,
 )
 def sfz_nfl_refresh():
+    from fan_zone_tasks import active_sites
+    sites = active_sites()
+
     @task(pool="balldontlie_api", execution_timeout=timedelta(minutes=70))
-    def refresh_nfl_snapshot():
+    def refresh_nfl_snapshot(site):
         from airflow.sdk import get_current_context
         from sfz_nfl_hook import NflRefreshHook
 
-        return NflRefreshHook().refresh(get_current_context()["run_id"])
+        return {"site": site, "receipt": NflRefreshHook().refresh(get_current_context()["run_id"], site)}
 
     @task(execution_timeout=timedelta(minutes=2))
-    def save_run_receipt(receipt: dict):
+    def save_run_receipt(result: dict):
         import hashlib
         import json
         import os
@@ -42,8 +47,9 @@ def sfz_nfl_refresh():
         from sfz_nfl_hook import validate_receipt
 
         run_id = get_current_context()["run_id"]
-        validate_receipt(receipt, run_id)
-        directory = Path("/opt/airflow/artifacts/seahawks/nfl") / hashlib.sha256(run_id.encode()).hexdigest()
+        site, receipt = result["site"], result["receipt"]
+        validate_receipt(receipt, run_id, site)
+        directory = Path("/opt/airflow/artifacts") / site["slug"] / "nfl" / hashlib.sha256(run_id.encode()).hexdigest()
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / "receipt.json"
         temporary = directory / "receipt.json.tmp"
@@ -56,7 +62,17 @@ def sfz_nfl_refresh():
         print(f"NFL receipt saved: {target}; requests={receipt['requestCount']}; updatedAt={receipt['updatedAt']}")
         return str(target)
 
-    save_run_receipt(refresh_nfl_snapshot())
+    for site in sites:
+        slug = site["slug"]
+        title = f"{site['city']} {site['name']}"
+        refreshed = refresh_nfl_snapshot.override(
+            task_id=f"refresh_nfl_snapshot_{slug}",
+            task_display_name=f"Refresh NFL: {title}",
+        )(site)
+        save_run_receipt.override(
+            task_id=f"save_run_receipt_{slug}",
+            task_display_name=f"Save NFL receipt: {title}",
+        )(refreshed)
 
 
 sfz_nfl_refresh()

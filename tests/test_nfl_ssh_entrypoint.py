@@ -2,6 +2,7 @@
 
 import base64
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 
@@ -18,6 +19,19 @@ def encode(value):
 class CommandArgumentsTests(unittest.TestCase):
     def test_check(self):
         self.assertEqual(ENTRYPOINT.command_arguments("check"), ["--check"])
+
+    def test_team_requests_are_data_only_and_reject_extra_fields(self):
+        site = {"slug": "broncos", "name": "Broncos"}
+        request = {"runId": "manual__teams", "site": site}
+        args = ENTRYPOINT.command_arguments("refresh " + encode(json.dumps(request)))
+        self.assertEqual(args, ["--run-id=manual__teams", "--site-json=" + json.dumps(site, separators=(",", ":"))])
+        self.assertEqual(ENTRYPOINT.command_arguments("check " + encode(json.dumps({"site": site})))[0], "--check")
+        for malformed in ({**request, "runtime": "/tmp/redirect"}, {**request, "runId": []}, {**request, "site": "broncos"},
+                          {**request, "runId": "bad\nrun"}, {**request, "runId": "a" * 513}):
+            with self.assertRaises(ValueError):
+                ENTRYPOINT.command_arguments("refresh " + encode(json.dumps(malformed)))
+        with self.assertRaises(ValueError):
+            ENTRYPOINT.command_arguments("refresh " + encode(json.dumps({**request, "site": {"prompt": "a" * 25000}})))
 
     def test_airflow_run_id(self):
         run_id = "scheduled__2026-09-10T04:00:00+00:00"

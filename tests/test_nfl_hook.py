@@ -28,6 +28,19 @@ class ReceiptTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             hook.validate_receipt(value, "manual__test")
 
+    def test_team_receipts_cannot_cross_between_tasks(self):
+        site = {"slug": "broncos"}
+        value = self.receipt()
+        value["team"] = "broncos"
+        value["files"]["broncos.json"] = value["files"].pop("seahawks.json")
+        self.assertEqual(hook.validate_receipt(value, "manual__test", site), value)
+        for wrong in ({"slug": "packers"}, {"slug": "seahawks"}):
+            with self.assertRaises(ValueError):
+                hook.validate_receipt(value, "manual__test", wrong)
+        value.pop("team")
+        with self.assertRaises(ValueError):
+            hook.validate_receipt(value, "manual__test", site)
+
     def test_invalid_digests_and_no_api_requests_are_rejected(self):
         for bad in (0, -1, True, "9"):
             value = self.receipt(); value["requestCount"] = bad

@@ -24,7 +24,7 @@ def validate_site(slug, site):
         raise ValueError("Site slug does not match its key")
     allowed = {"slug", "enabled", "name", "city", "abbreviation", "balldontlie_team_id",
                "website_root", "news_snapshot_dir", "news_photos_dir", "source_domains",
-               "prompts", "timezone", "division", "eventspy"}
+               "prompts", "timezone", "division", "eventspy", "nfl_snapshot_dir", "recap_snapshot_dir"}
     if set(site) - allowed:
         raise ValueError(f"{slug}: unsupported site configuration fields")
     result = dict(site, slug=slug)
@@ -70,6 +70,14 @@ def validate_site(slug, site):
         raise ValueError(f"{slug}: invalid division")
     if "eventspy" in site:
         result["eventspy"] = validate_eventspy(slug, site["eventspy"])
+    for field, suffix in (("nfl_snapshot_dir", "nfl"), ("recap_snapshot_dir", "recaps")):
+        if field not in site:
+            continue  # Legacy daily-news requests remain valid.
+        destination = site[field]
+        if not isinstance(destination, str) or not re.fullmatch(r"/var/lib/[a-z][a-z0-9-]{0,59}-" + suffix + r"/current", destination):
+            raise ValueError(f"{slug}: invalid {field}")
+        if (slug == "seahawks") != (destination == f"/var/lib/sfz-{suffix}/current"):
+            raise ValueError(f"The existing Seattle {suffix} output belongs only to seahawks and must be preserved")
     if len(json.dumps(result).encode()) > 23000:
         raise ValueError(f"{slug}: configuration is too large")
     return result
@@ -99,6 +107,15 @@ def validate_sites(value):
         if path in ticket_owners:
             raise ValueError(f"{slug} and {ticket_owners[path]} share ticket output")
         ticket_owners[path] = slug
+    for field in ("nfl_snapshot_dir", "recap_snapshot_dir"):
+        owners = {}
+        for slug, site in sites.items():
+            if field not in site:
+                continue
+            destination = site[field]
+            if destination in owners:
+                raise ValueError(f"{slug} and {owners[destination]} share {field}")
+            owners[destination] = slug
     return sites
 
 
