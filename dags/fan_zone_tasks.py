@@ -1,4 +1,4 @@
-"""Runtime team selection and receipt storage for the daily news DAG."""
+"""Team configuration and receipt storage for the daily news DAG."""
 import base64
 from datetime import date
 import hashlib
@@ -14,7 +14,7 @@ MAX_TOKEN_BYTES = 32768
 
 
 def active_sites():
-    """Read the Variable once per run, never while the scheduler parses the DAG."""
+    """Read the Variable once; callers may use this during DAG parsing or a task."""
     from airflow.sdk import Variable
     from fan_zone_config import validate_sites
     value = Variable.get(VARIABLE_NAME, default=None, deserialize_json=True)

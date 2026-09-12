@@ -1,9 +1,10 @@
 # Daily articles controlled by active sites
 
 The existing `sfz_daily_article` DAG reads the Airflow Variable
-`fan_zone_active_sites` once per run. It maps `generate_article` and
-`save_run_receipt` over entries with `enabled: true`. The mapped tasks display
-team slugs in Airflow. The existing daily 08:00 America/Los_Angeles schedule,
+`fan_zone_active_sites` once each time Airflow parses the DAG. It creates
+separate `generate_article_<slug>` and `save_run_receipt_<slug>` tasks for
+entries with `enabled: true`. Each pair is a separate branch in the graph.
+Display names include the city and team, such as `Generate article: Denver Broncos`. The existing daily 08:00 America/Los_Angeles schedule,
 `sfz_news_host` connection, retry policy and DAG pause state are preserved.
 
 | Team | Daily article output | Photo folder |
@@ -30,15 +31,17 @@ to the existing America/Los_Angeles timezone.
 To add a team, copy an entry, set its slug/name/city, source domains, article
 prompt, and separate `/var/lib/<site>-news/current` and sibling `photos` paths.
 Create the new parent with user-owned `photos`, `assets`, `days` and `releases`
-subfolders before enabling it. Setting `enabled: false` removes its mapped tasks
-from the next run. Do not create `current` manually: the runner publishes that
+subfolders before enabling it. Setting `enabled: false` removes its tasks from the graph after the next
+DAG parse. New runs use the updated graph. Do not create `current` manually: the runner publishes that
 symlink after validating a complete release. The supplied installer initializes
 these directories for the configured new teams.
 
-The Variable is read at task runtime, not during DAG parsing. The checked-in
-JSON is a fallback only when the Variable is absent. Invalid or overlapping
-paths fail validation before any article task starts. Editing the UI changes
-subsequent runs; it does not change an already-loaded run or commit a Git file.
+The Variable is read during DAG parsing so all enabled websites appear as
+separate named nodes before execution. The small configuration is fetched once
+per parse. The checked-in JSON is a fallback only when the Variable is absent. Invalid or overlapping
+paths fail validation before any article task starts. Editing the UI updates the graph after Airflow reparses the DAG; it does not
+rewrite an already-recorded DAG version or commit a Git file. View the updated
+DAG graph instead of an older run when checking the new task names.
 After UI edits, export/copy this Variable's value to `config/active-sites.json`
 in both checkouts and commit that file. The website also accepts Airflow's
 single-variable export envelope via `ACTIVE_SITES_FILE`.
@@ -104,7 +107,7 @@ news update.
 ## Checks
 
 The news tests cover legacy Seattle requests and retained history, per-team
-prompts/photos/paths, mapped tasks, JSON validation and receipt identity.
+prompts/photos/paths, separate named tasks, JSON validation and receipt identity.
 The website's `npm run test:template` and news snapshot tests cover team
 filtering, checksums and history preservation. They do not call paid APIs.
 The installer validates the update and commits/pushes only its listed files
