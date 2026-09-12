@@ -40,7 +40,7 @@ DIVISIONS = {
 def site_settings(site=None):
     if site is None:
         return {"slug": "seahawks", "name": "Seahawks", "city": "Seattle", "abbreviation": "SEA",
-                "balldontlie_team_id": 31, "nfl_snapshot_dir": str(RUNTIME / "current")}
+                "balldontlie_team_id": 31, "division": "NFC West", "nfl_snapshot_dir": str(RUNTIME / "current")}
     if str(SHARED) not in sys.path:
         sys.path.insert(0, str(SHARED))
     from fan_zone_host import authorize_site
@@ -217,17 +217,21 @@ def stage_source(source: Path, work: Path, current: Path, site=None) -> None:
     roster.parent.mkdir(parents=True)
     selected = site or site_settings()
     combined_name = primary_files(selected)[0]
+    template = is_template_source(work)
     if selected["slug"] == "seahawks":
         shutil.copy2(source / "src/data/team/roster.json", roster)
     else:
         # The BDL player directory is not an authoritative active roster.
         roster.write_text(json.dumps({"players": []}) + "\n")
+    if selected["slug"] != "seahawks" or template:
         adapt_staged_source(work, selected)
     data = work / "src/data/nfl"
     data.mkdir(parents=True)
     source_data = source / "src/data/nfl"
     for path in (source_data.glob("watch-guide-*.json") if selected["slug"] == "seahawks" else []):
         shutil.copy2(path, data / path.name)
+        if template:
+            render_seattle_watch_identity(data / path.name)
     for name in (("seahawks.json", "gameRecaps.json") if selected["slug"] == "seahawks" else []):
         if (source_data / name).is_file():
             shutil.copy2(source_data / name, data / name)
@@ -237,28 +241,85 @@ def stage_source(source: Path, work: Path, current: Path, site=None) -> None:
         shutil.copy2(previous / combined_name, data / combined_name)
 
 
-def check_staging_contract(source: Path) -> None:
+def is_template_source(source: Path) -> bool:
+    return ('"{team}.json"' in (source / "scripts/fetch-nfl.mjs").read_text()
+            or '"{Abbreviation}"' in (source / "src/lib/schedule.mjs").read_text())
+
+
+def render_seattle_watch_identity(path: Path) -> None:
+    """Resolve only the Seattle identity fields consumed by schedule-guide.mjs."""
+    guide = load_object(path)
+    tokens = {"{team}": "seahawks", "{Team}": "Seahawks", "{TEAM}": "SEAHAWKS"}
+    for game in guide.get("games", []):
+        for key in ("matchup", "result", "officialGameUrl"):
+            if isinstance(game.get(key), str):
+                game[key] = re.sub(r"\{(?:team|Team|TEAM)\}", lambda match: tokens[match[0]], game[key])
+    path.write_text(json.dumps(guide, indent=2) + "\n")
+
+
+def check_staging_contract(source: Path) -> str:
     fetch = (source / "scripts/fetch-nfl.mjs").read_text()
     normalizer = (source / "src/lib/schedule.mjs").read_text()
+    template = is_template_source(source)
     required = {
-        '"seahawks.json"': 2,
+        '"{team}.json"' if template else '"seahawks.json"': 2,
         '  console.log(`Using ${TEAM_ABBR} team id: ${team.id}`);': 1,
     }
     if any(fetch.count(marker) != count for marker, count in required.items()):
         raise ValueError("Production NFL fetcher staging contract changed; review before collecting another team")
     standings = (source / "src/lib/standings.mjs").read_text()
-    if standings.count('const WEST = new Set(["ARI", "LAR", "SF", "SEA"]);') != 1:
+    division_marker = 'const WEST = new Set({DivisionTeams});' if template else 'const WEST = new Set(["ARI", "LAR", "SF", "SEA"]);'
+    if standings.count(division_marker) != 1:
         raise ValueError("Production standings division binding changed; review before collecting another team")
-    if normalizer.count('const TEAM = "SEA";') != 1:
+    team_marker = 'const TEAM = "{Abbreviation}";' if template else 'const TEAM = "SEA";'
+    if normalizer.count(team_marker) != 1:
         raise ValueError("Production schedule normalizer team binding changed; review before collecting another team")
+    return "template" if template else "legacy"
+
+
+def render_staged_template(work: Path, site: dict) -> None:
+    """Resolve executable template tokens only in the isolated collector copy.
+
+    Match template-tools/render.mjs for identity/location/division tokens. Never
+    render source data: real opponents, roster entries and recap history are not
+    substitution templates. Theme tokens are outside this collector contract.
+    """
+    slug, name, city, abbreviation = (site[key] for key in ("slug", "name", "city", "abbreviation"))
+    if (not re.fullmatch(r"[a-z]{2,30}", slug) or name != slug.capitalize()
+            or not re.fullmatch(r"[A-Za-z]+(?: [A-Za-z]+)*", city)
+            or not re.fullmatch(r"[A-Z]{2,3}", abbreviation)):
+        raise ValueError("Invalid NFL template team identity")
+    division = DIVISIONS.get(site.get("division"))
+    if not division or abbreviation not in division:
+        raise ValueError("Configured NFL division does not contain the selected team")
+    tokens = {
+        "{team}": slug, "{Team}": name, "{TEAM}": slug.upper(),
+        "{Abbreviation}": abbreviation, "{Location}": city, "{LOCATION}": city.upper(),
+        "{Division}": site["division"], "{Conference}": site["division"].split()[0],
+        "{DivisionTeams}": json.dumps(division),
+    }
+    pattern = re.compile("|".join(re.escape(token) for token in tokens))
+    location = re.compile(r"\b(?:Seattle|SEATTLE|seattle)(?=\s+\{(?:Team|TEAM|team)\})")
+    for folder in (work / "scripts", work / "src/lib"):
+        for path in folder.rglob("*"):
+            if not path.is_file() or path.suffix not in (".mjs", ".js", ".ts", ".py"):
+                continue
+            body = path.read_text()
+            body = location.sub(lambda match: city.upper() if match[0] == "SEATTLE"
+                                else city.lower() if match[0] == "seattle" else city, body)
+            body = pattern.sub(lambda match: tokens[match[0]], body)
+            path.write_text(body)
 
 
 def adapt_staged_source(work: Path, site: dict) -> None:
     """Bind the production normalizers to one team only in an isolated work copy."""
-    check_staging_contract(work)
+    template = check_staging_contract(work) == "template"
+    if template:
+        render_staged_template(work, site)
     fetch_path = work / "scripts/fetch-nfl.mjs"
     fetch = fetch_path.read_text()
-    fetch = fetch.replace('"seahawks.json"', json.dumps(site["slug"] + ".json"))
+    if not template:
+        fetch = fetch.replace('"seahawks.json"', json.dumps(site["slug"] + ".json"))
     marker = '  console.log(`Using ${TEAM_ABBR} team id: ${team.id}`);'
     expected = json.dumps({"full_name": site["city"] + " " + site["name"],
                            "id": site.get("balldontlie_team_id")})
@@ -271,6 +332,8 @@ def adapt_staged_source(work: Path, site: dict) -> None:
   }
 '''.replace("__EXPECTED__", expected)
     fetch_path.write_text(fetch.replace(marker, guard + marker))
+    if template:
+        return
     normalizer = work / "src/lib/schedule.mjs"
     body = normalizer.read_text().replace('const TEAM = "SEA";', 'const TEAM = ' + json.dumps(site["abbreviation"]) + ';')
     body = body.replace('game.seahawksRecordAfter', 'game.' + site["slug"].replace('-', '_') + 'RecordAfter')
@@ -420,7 +483,7 @@ def main() -> int:
         selected = site_settings(request_site)
         if args.check:
             commit, _ = preflight(SOURCE, Path(selected["nfl_snapshot_dir"]).parent)
-            if selected["slug"] != "seahawks":
+            if selected["slug"] != "seahawks" or is_template_source(SOURCE):
                 check_staging_contract(SOURCE)
             print(json.dumps({"status": "ready", "sourceCommit": commit, "image": IMAGE, "apiRequests": 0}))
         else:
