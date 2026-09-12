@@ -3,8 +3,10 @@
 import argparse
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 import sys
-from news_core import SOURCE, RUNTIME, SEATTLE, api_key, collect, photo_pool, read_config, source_catalog
+from zoneinfo import ZoneInfo
+from news_core import SOURCE, RUNTIME, SEATTLE, api_key, collect, photo_pool, read_config, site_settings, source_catalog
 
 
 def main():
@@ -13,19 +15,25 @@ def main():
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--run-id')
     parser.add_argument('--publication-day')
+    parser.add_argument('--site-json', help='Validated site configuration supplied by the Airflow task')
     args = parser.parse_args()
     try:
+        site = site_settings(json.loads(args.site_json)) if args.site_json else None
+        source = Path(site['website_root']) if site else SOURCE
+        runtime = Path(site['news_snapshot_dir']).parent if site else RUNTIME
+        photos_dir = Path(site['news_photos_dir']) if site else runtime / 'photos'
         if args.check:
-            if not RUNTIME.is_dir() or not (RUNTIME / 'photos').is_dir():
+            if not runtime.is_dir() or not photos_dir.is_dir():
                 raise ValueError('Create the news runtime and photo directory using the installer')
-            commit, _ = source_catalog(SOURCE)
-            api_key(SOURCE)
-            photos, notes = photo_pool(RUNTIME)
-            print(json.dumps({'status': 'ready', 'sourceCommit': commit, 'photoCount': len(photos),
-                              'model': read_config(RUNTIME)['model'], 'apiRequests': 0, 'notes': notes}))
+            commit, _ = source_catalog(source, site=site)
+            api_key(SOURCE if site is not None else source)
+            photos, notes = photo_pool(runtime, photos_dir)
+            print(json.dumps({'status': 'ready', 'team': site_settings(site)['slug'], 'sourceCommit': commit, 'photoCount': len(photos),
+                              'model': read_config(runtime)['model'], 'apiRequests': 0, 'notes': notes}))
         else:
-            day = args.publication_day or datetime.now(timezone.utc).astimezone(SEATTLE).date().isoformat()
-            receipt = collect(args.run_id, day)
+            zone = ZoneInfo(site.get('timezone', 'America/Los_Angeles')) if site else SEATTLE
+            day = args.publication_day or datetime.now(timezone.utc).astimezone(zone).date().isoformat()
+            receipt = collect(args.run_id, day, site=site)
             print('SFZ_NEWS_RECEIPT=' + json.dumps(receipt, separators=(',', ':')))
         return 0
     except Exception as exc:

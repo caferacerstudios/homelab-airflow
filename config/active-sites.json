@@ -1,0 +1,40 @@
+{
+  "seahawks": {
+    "enabled": true,
+    "name": "Seahawks",
+    "city": "Seattle",
+    "abbreviation": "SEA",
+    "balldontlie_team_id": 31,
+    "news_snapshot_dir": "/var/lib/sfz-news/current",
+    "news_photos_dir": "/var/lib/sfz-news/photos",
+    "source_domains": [
+      "seahawks.com",
+      "nfl.com"
+    ],
+    "prompts": {
+      "article": "Write for Seattle Seahawks fans. Explain the most significant verified development and what it means for the team."
+    },
+    "slug": "seahawks",
+    "website_root": "/home/laurawkr/seahawksfanzone",
+    "timezone": "America/Los_Angeles"
+  },
+  "broncos": {
+    "enabled": true,
+    "name": "Broncos",
+    "city": "Denver",
+    "abbreviation": "DEN",
+    "balldontlie_team_id": null,
+    "news_snapshot_dir": "/var/lib/boncosfz-news/current",
+    "news_photos_dir": "/var/lib/boncosfz-news/photos",
+    "source_domains": [
+      "denverbroncos.com",
+      "nfl.com"
+    ],
+    "prompts": {
+      "article": "Write for Denver Broncos fans. Explain the most significant verified development and what it means for the team."
+    },
+    "slug": "broncos",
+    "website_root": "/home/laurawkr/templatefanzone",
+    "timezone": "America/Los_Angeles"
+  }
+}

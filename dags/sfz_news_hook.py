@@ -1,24 +1,25 @@
-"""Invoke the restricted news runner; transport only run identity and receipt."""
-import base64
+"""Invoke the restricted news runner with the selected team's configuration."""
 from datetime import date, datetime
 import json
 import re
 from zoneinfo import ZoneInfo
 
 
-def publication_day(context):
+def publication_day(context, timezone='America/Los_Angeles'):
     logical = context.get('logical_date')
     if logical is None:
         run = context.get('dag_run')
         logical = getattr(run, 'start_date', None) or getattr(run, 'run_after', None)
     if logical is None:
         raise ValueError('Cannot determine a stable publication day from this DAG run')
-    return logical.astimezone(ZoneInfo('America/Los_Angeles')).date().isoformat()
+    return logical.astimezone(ZoneInfo(timezone)).date().isoformat()
 
 
-def validate_receipt(receipt, run_id, day):
+def validate_receipt(receipt, run_id, day, site=None):
     if not isinstance(receipt, dict) or receipt.get('schema_version') != 1 or receipt.get('runId') != run_id or receipt.get('publicationDay') != day:
         raise ValueError('News receipt identity mismatch')
+    if site is not None and receipt.get('team') != site['slug']:
+        raise ValueError('News receipt belongs to a different team')
     for field in ('articleCount', 'generatedCount', 'openaiRequestCount'):
         if type(receipt.get(field)) is not int or receipt[field] < 0:
             raise ValueError('Invalid news receipt count')
@@ -41,11 +42,12 @@ class NewsRefreshHook:
     def __init__(self, ssh_conn_id='sfz_news_host'):
         self.ssh_conn_id = ssh_conn_id
 
-    def refresh(self, run_id, day):
+    def refresh(self, run_id, day, site=None):
         from airflow.providers.ssh.hooks.ssh import SSHHook
-        if not run_id or len(run_id.encode()) > 512 or date.fromisoformat(day).isoformat() != day:
+        from fan_zone_tasks import encode_request
+        if date.fromisoformat(day).isoformat() != day:
             raise ValueError('Invalid news run request')
-        token = base64.urlsafe_b64encode(json.dumps({'runId': run_id, 'publicationDay': day}).encode()).decode().rstrip('=')
+        token = encode_request(run_id, site, day)
         hook = SSHHook(ssh_conn_id=self.ssh_conn_id, conn_timeout=15, cmd_timeout=720, keepalive_interval=30, conn_retry_attempts=1)
         with hook.get_conn() as client:
             status, stdout, _ = hook.exec_ssh_client_command(client, 'refresh ' + token, get_pty=False, environment=None, timeout=720)
@@ -55,4 +57,4 @@ class NewsRefreshHook:
         lines = [line[len(prefix):] for line in stdout.decode('utf-8', 'replace').splitlines() if line.startswith(prefix)]
         if len(lines) != 1:
             raise ValueError('Expected exactly one news receipt')
-        return validate_receipt(json.loads(lines[0]), run_id, day)
+        return validate_receipt(json.loads(lines[0]), run_id, day, site)
