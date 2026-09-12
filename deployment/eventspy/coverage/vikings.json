@@ -147,7 +147,7 @@
     "gameId": null,
     "state": "unavailable",
     "opponent": "San Francisco 49ers",
-    "homeAway": "home",
+    "homeAway": "away",
     "localDate": "2026-11-22",
     "sourceEventId": null,
     "sourceUrl": null,
@@ -156,8 +156,8 @@
     "week": 11,
     "timeZone": "America/Mexico_City",
     "opponentAbbreviation": "SF",
-    "homeTeamAbbreviation": "MIN",
-    "awayTeamAbbreviation": "SF"
+    "homeTeamAbbreviation": "SF",
+    "awayTeamAbbreviation": "MIN"
   },
   {
     "gameId": null,

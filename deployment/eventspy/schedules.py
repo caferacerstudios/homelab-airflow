@@ -125,7 +125,7 @@ def _abbreviation(value) -> str:
 
 def validate_schedule(payload: dict, site: dict, coverage: list[dict]) -> None:
     """Reject incomplete/wrong-team schedules and unreviewed identity/date changes."""
-    _, abbreviation, season = _identity(site, coverage)
+    slug, abbreviation, season = _identity(site, coverage)
     if not isinstance(payload, dict) or payload.get("fixture") is not False or payload.get("source") != "balldontlie":
         raise ValueError("Expected a genuine BALLDONTLIE schedule cache")
     if payload.get("season") != season:
@@ -160,8 +160,13 @@ def validate_schedule(payload: dict, site: dict, coverage: list[dict]) -> None:
         home, away = game.get("home_team"), game.get("visitor_team")
         if not isinstance(home, dict) or not isinstance(away, dict):
             raise ValueError("Schedule game must identify both NFL teams")
-        if (_abbreviation(home.get("abbreviation")), _abbreviation(away.get("abbreviation"))) != (_abbreviation(entry.get("homeTeamAbbreviation")), _abbreviation(entry.get("awayTeamAbbreviation"))):
-            raise ValueError(f"Week {week}: API matchup does not match reviewed EventSpy coverage")
+        actual = (_abbreviation(home.get("abbreviation")), _abbreviation(away.get("abbreviation")))
+        reviewed = (_abbreviation(entry.get("homeTeamAbbreviation")), _abbreviation(entry.get("awayTeamAbbreviation")))
+        if actual != reviewed:
+            raise ValueError(
+                f"{slug} Week {week}: API matchup does not match reviewed EventSpy coverage "
+                f"(API {actual[1]} at {actual[0]}; reviewed {reviewed[1]} at {reviewed[0]})"
+            )
         participants = [participant for participant in (home, away) if _abbreviation(participant.get("abbreviation")) == _abbreviation(abbreviation)]
         if len(participants) != 1 or participants[0].get("id") != team["id"]:
             raise ValueError("Schedule game does not include the configured team ID")

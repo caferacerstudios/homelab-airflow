@@ -49,7 +49,7 @@ EventSpy index: https://www.event-spy.com/performer/minnesota-vikings-ticket-pri
 | 8 | MIN @ DET | 2026-11-01 | Ford Field | [374760](https://www.event-spy.com/event/detroit-lions-detroit-nov-01-2026/374760) |
 | 9 | BUF @ MIN | 2026-11-09 | U.S. Bank Stadium | [374829](https://www.event-spy.com/event/minnesota-vikings-minneapolis-nov-09-2026/374829) |
 | 10 | MIN @ GB | 2026-11-15 | Lambeau Field | [374874](https://www.event-spy.com/event/green-bay-packers-green-bay-nov-15-2026/374874) |
-| 11 | SF @ MIN | 2026-11-22 | Estadio Banorte, Mexico City | Unavailable |
+| 11 | MIN @ SF | 2026-11-22 | Estadio Banorte, Mexico City | Unavailable |
 | 12 | ATL @ MIN | 2026-11-29 | U.S. Bank Stadium | [374959](https://www.event-spy.com/event/minnesota-vikings-minneapolis-nov-29-2026/374959) |
 | 13 | CAR @ MIN | 2026-12-06 | U.S. Bank Stadium | [375007](https://www.event-spy.com/event/minnesota-vikings-minneapolis-dec-06-2026/375007) |
 | 14 | MIN @ NE | 2026-12-10 | Gillette Stadium | [375029](https://www.event-spy.com/event/new-england-patriots-foxborough-dec-10-2026/375029) |
@@ -91,7 +91,7 @@ EventSpy index: https://www.event-spy.com/performer/kansas-city-chiefs-ticket-pr
 ## Gaps and excluded products
 
 - Packers Week 18 vs. Detroit is TBD on the official schedule and absent from the reviewed EventSpy index.
-- Vikings Week 11 vs. San Francisco is a designated Minnesota home game in Mexico City at Estadio Banorte. No matching general-admission EventSpy page was found. It uses `America/Mexico_City`, not Minneapolis or Santa Clara time. Weeks 16 vs. Washington and 18 vs. Chicago remain TBD without verified source pages.
+- Vikings Week 11 at San Francisco is a designated 49ers home game in Mexico City at Estadio Banorte, as confirmed by the [Vikings](https://www.vikings.com/news/mexico-city-49ers-nfl-international-game-week-11-2026) and [49ers](https://www.49ers.com/news/49ers-to-face-minnesota-vikings-in-mexico-city-in-week-11-snf). No matching general-admission EventSpy page was found. It uses `America/Mexico_City`, not Minneapolis or Santa Clara time. Weeks 16 vs. Washington and 18 vs. Chicago remain TBD without verified source pages.
 - Chiefs Week 12 at Buffalo: [374943](https://www.event-spy.com/event/buffalo-bills-orchard-park-nov-26-2026/374943) is titled “Club Seats: Bills vs Chiefs.” This seating-specific product is excluded from general game comparisons and does not meet the existing full-team-name identity check. Weeks 17 at the Chargers and 18 vs. the Raiders remain TBD without verified source pages.
 - Chiefs Week 6 source 374671 is linked by the official EventSpy Chiefs performer index as the Chargers game at Arrowhead on October 18. The event page text extraction was incomplete during review; no substitute tour or tailgate was used. Runtime source-identity validation remains required before saving prices.
 - [372316](https://www.event-spy.com/event/kansas-city-chiefs-gameday-stadium-tour-kansas-city-sep-14-2026/372316) is a stadium tour and [374683](https://www.event-spy.com/event/kansas-city-chiefs-champions-tailgate-kansas-city-oct-18-2026/374683) is a tailgate, so neither is authorized.
