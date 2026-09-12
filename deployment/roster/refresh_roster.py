@@ -8,6 +8,7 @@ team's news root, replacing the final '-news' suffix with '-roster'.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
@@ -53,6 +54,42 @@ def ordinary_path(path: Path, *, directory=False, writable=False) -> None:
         raise ValueError(f'Unexpected path type: {path}')
     if writable and (info.st_uid != os.getuid() or info.st_mode & 0o022):
         raise ValueError(f'Expected a user-owned, non-shared writable path: {path}')
+
+
+def ensure_run_directory(path: Path) -> None:
+    """Create/repair only this runner's exact state directory, never recursively."""
+    path.mkdir(mode=0o755, exist_ok=True)
+    ordinary_path(path, directory=True)
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid() or info.st_mode & 0o7002:
+            raise ValueError(f'Unexpected owner or permissions on roster run directory: {path}')
+        # Earlier versions inherited umask 0002 and left these directories 0775.
+        os.fchmod(descriptor, 0o755)
+    finally:
+        os.close(descriptor)
+    ordinary_path(path, directory=True, writable=True)
+
+
+@contextmanager
+def collection_lock(path: Path):
+    ordinary_path(path.parent, directory=True, writable=True)
+    if path.exists() or path.is_symlink():
+        ordinary_path(path)
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(descriptor, 'a') as lock:
+        info = os.fstat(lock.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_nlink != 1 or info.st_mode & 0o7002):
+            raise ValueError(f'Unexpected owner, links or permissions on roster lock: {path}')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another roster collection is running for this team') from None
+        # Keep the inode: deleting a lock can allow two simultaneous publishers.
+        os.fchmod(lock.fileno(), 0o600)
+        yield lock
 
 
 def runtime_for(site: dict) -> Path:
@@ -317,7 +354,7 @@ def validate_run_id(value: str) -> str:
     return value
 
 
-def collect(run_id: str, site: dict, runtime: Path | None = None) -> dict:
+def _collect(run_id: str, site: dict, runtime: Path | None = None) -> dict:
     validate_run_id(run_id)
     selected = site_settings(site)
     if not selected['enabled']:
@@ -326,19 +363,11 @@ def collect(run_id: str, site: dict, runtime: Path | None = None) -> dict:
     ordinary_path(runtime, directory=True, writable=True)
     run_key = hashlib.sha256(run_id.encode()).hexdigest()
     lock_path = runtime / 'collector.lock'
-    if lock_path.exists() or lock_path.is_symlink():
-        ordinary_path(lock_path, writable=True)
-    with lock_path.open('a') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError('Another roster collection is running for this team') from None
+    with collection_lock(lock_path):
         runs = runtime / 'runs'
-        runs.mkdir(exist_ok=True)
-        ordinary_path(runs, directory=True, writable=True)
+        ensure_run_directory(runs)
         run_dir = runs / run_key
-        run_dir.mkdir(exist_ok=True)
-        ordinary_path(run_dir, directory=True, writable=True)
+        ensure_run_directory(run_dir)
         snapshot = run_dir / 'snapshot'
         if snapshot.exists() or snapshot.is_symlink():
             manifest = verify_snapshot(snapshot, selected, run_id)
@@ -393,6 +422,16 @@ def collect(run_id: str, site: dict, runtime: Path | None = None) -> dict:
         sync_directory(run_dir)
         publish_if_newer(snapshot, runtime, selected, manifest)
         return {**manifest, 'snapshotPath': str(snapshot), 'reused': False}
+
+
+def collect(run_id: str, site: dict, runtime: Path | None = None) -> dict:
+    # SSH can inherit 0002 (group writable) or 0077 (unreadable by builders).
+    # This host runner is a dedicated process; leave its caller's mask unchanged.
+    previous_mask = os.umask(0o022)
+    try:
+        return _collect(run_id, site, runtime)
+    finally:
+        os.umask(previous_mask)
 
 
 def interrupted(_signum, _frame):

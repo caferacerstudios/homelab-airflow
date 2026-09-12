@@ -149,6 +149,85 @@ class HostTests(unittest.TestCase):
         self.site['slug'] = 'seahawks'
         self.assertEqual(runner.previous_payloads(self.site, self.runtime)['transactions'], {'legacy': 'transactions.json'})
 
+    def test_ssh_umask_does_not_make_state_shared_or_snapshots_private(self):
+        for mask in (0o002, 0o077):
+            with self.subTest(mask=oct(mask)):
+                previous = os.umask(mask)
+                try:
+                    result = self.collect('umask-' + str(mask))
+                    actual = os.umask(mask)
+                    self.assertEqual(actual, mask)
+                    snapshot = Path(result['snapshotPath'])
+                    self.assertEqual((self.runtime / 'collector.lock').stat().st_mode & 0o777, 0o600)
+                    for directory in (self.runtime / 'runs', snapshot.parent, snapshot):
+                        self.assertEqual(directory.stat().st_mode & 0o777, 0o755)
+                    for filename in (*runner.FILES, 'manifest.json'):
+                        self.assertEqual((snapshot / filename).stat().st_mode & 0o777, 0o644)
+                    self.assertTrue(self.collect('umask-' + str(mask))['reused'])
+                    self.assertEqual(os.umask(mask), mask)
+                finally:
+                    os.umask(previous)
+
+    def test_previous_group_writable_state_is_repaired_without_replacing_lock(self):
+        lock = self.runtime / 'collector.lock'
+        lock.write_text('')
+        lock.chmod(0o664)
+        inode = lock.stat().st_ino
+        runs = self.runtime / 'runs'
+        run = runs / hashlib.sha256(b'manual__one').hexdigest()
+        run.mkdir(parents=True)
+        runs.chmod(0o775)
+        run.chmod(0o775)
+        unrelated = runs / 'unrelated-history'
+        unrelated.mkdir()
+        unrelated.chmod(0o775)
+        result = self.collect()
+        self.assertEqual(lock.stat().st_ino, inode)
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(runs.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(run.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(unrelated.stat().st_mode & 0o777, 0o775)
+        self.assertEqual(runner.current_snapshot(self.runtime), Path(result['snapshotPath']))
+
+    def test_live_lock_is_not_replaced_or_chmodded(self):
+        lock = self.runtime / 'collector.lock'
+        lock.write_text('')
+        lock.chmod(0o664)
+        inode = lock.stat().st_ino
+        with lock.open('a') as held:
+            runner.fcntl.flock(held, runner.fcntl.LOCK_EX | runner.fcntl.LOCK_NB)
+            with self.assertRaisesRegex(RuntimeError, 'Another roster collection'):
+                self.collect()
+        self.assertEqual(lock.stat().st_ino, inode)
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o664)
+        self.mocks[-1].assert_not_called()
+
+    def test_unsafe_locks_are_not_changed(self):
+        target = self.root / 'unrelated-file'
+        target.write_text('untouched')
+        target.chmod(0o664)
+        lock = self.runtime / 'collector.lock'
+        lock.symlink_to(target)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            self.collect()
+        lock.unlink()
+        os.link(target, lock)
+        with self.assertRaisesRegex(ValueError, 'links or permissions'):
+            self.collect()
+        self.assertEqual(target.stat().st_mode & 0o777, 0o664)
+        self.assertEqual(target.read_text(), 'untouched')
+        self.mocks[-1].assert_not_called()
+
+    def test_umask_restored_after_collection_failure(self):
+        self.mocks[-1].side_effect = RuntimeError('fixture collector failure')
+        previous = os.umask(0o002)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'fixture collector failure'):
+                self.collect()
+            self.assertEqual(os.umask(0o002), 0o002)
+        finally:
+            os.umask(previous)
+
     def test_duplicate_roster_ids_reject_candidate(self):
         work = self.root / 'check'
         work.mkdir()
