@@ -132,6 +132,7 @@ class ModularNewsTests(unittest.TestCase):
                 for folder in ('photos', 'assets', 'days', 'releases'):
                     (runtime / folder).mkdir()
                 (runtime / 'photos/photo.png').write_bytes(png(i + 1))
+                news.atomic_json(runtime / 'photos/metadata.json', {'photo.png': {'caption': 'Offline team photo fixture.', 'credit': 'Fixture photographer'}})
                 site.update(website_root=str(source), news_snapshot_dir=str(runtime / 'current'), news_photos_dir=str(runtime / 'photos'))
                 first = news.collect('same-run', '2026-09-12', current_time=self.now, site=site, catalog_fn=catalog, generate_fn=generate)
                 second = news.collect('retry', '2026-09-12', current_time=self.now, site=site, catalog_fn=catalog, generate_fn=generate)

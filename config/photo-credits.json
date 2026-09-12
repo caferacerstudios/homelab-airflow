@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "assets": {
+    "2237444728": {
+      "caption": "GLENDALE, ARIZONA - SEPTEMBER 25: Jason Myers #5 of the Seattle Seahawks celebrates kicking the game-winning field goal against the Arizona Cardinals during the fourth quarter of the game at State Farm Stadium on September 25, 2025 in Glendale, Arizona.",
+      "credit": "Photo by Norm Hall/Getty Images",
+      "eventDate": "2025-09-25",
+      "alt": "GLENDALE, ARIZONA - SEPTEMBER 25: Jason Myers #5 of the Seattle Seahawks celebrates kicking the game-winning field goal against the Arizona Cardinals during the fourth quarter of the game at State Farm Stadium on September 25, 2025 in Glendale, Arizona."
+    },
+    "2258183135": {
+      "caption": "SEATTLE, WASHINGTON - JANUARY 25: Sam Darnold #14 of the Seattle Seahawks celebrates a first quarter touchdown against the Los Angeles Rams in the NFC Championship game at Lumen Field on January 25, 2026 in Seattle, Washington.",
+      "credit": "Photo by Steph Chambers/Getty Images",
+      "eventDate": "2026-01-25",
+      "alt": "SEATTLE, WASHINGTON - JANUARY 25: Sam Darnold #14 of the Seattle Seahawks celebrates a first quarter touchdown against the Los Angeles Rams in the NFC Championship game at Lumen Field on January 25, 2026 in Seattle, Washington."
+    },
+    "2260601545": {
+      "caption": "SANTA CLARA, CALIFORNIA - FEBRUARY 08: Drake Maye #10 of the New England Patriots is sacked by Rylie Mills #98 of the Seattle Seahawks during the second quarter in Super Bowl LX at Levi's Stadium on February 08, 2026 in Santa Clara, California.",
+      "credit": "Photo by Kevin C. Cox/Getty Images",
+      "eventDate": "2026-02-08",
+      "alt": "SANTA CLARA, CALIFORNIA - FEBRUARY 08: Drake Maye #10 of the New England Patriots is sacked by Rylie Mills #98 of the Seattle Seahawks during the second quarter in Super Bowl LX at Levi's Stadium on February 08, 2026 in Santa Clara, California."
+    },
+    "2260614489": {
+      "caption": "SANTA CLARA, CALIFORNIA - FEBRUARY 08: Jaxon Smith-Njigba #11 of the Seattle Seahawks celebrates a 29-13 victory over the New England Patriots in Super Bowl LX at Levi's Stadium on February 08, 2026 in Santa Clara, California.",
+      "credit": "Photo by Thearon W. Henderson/Getty Images",
+      "eventDate": "2026-02-08",
+      "alt": "SANTA CLARA, CALIFORNIA - FEBRUARY 08: Jaxon Smith-Njigba #11 of the Seattle Seahawks celebrates a 29-13 victory over the New England Patriots in Super Bowl LX at Levi's Stadium on February 08, 2026 in Santa Clara, California."
+    },
+    "2291753684": {
+      "caption": "NASHVILLE, TENNESSEE - AUGUST 23: Drew Lock #2 of the Seattle Seahawks hands the ball off to Jacardia Wright #31 of the Seattle Seahawks during the first half of a preseason game against the Tennessee Titans at Nissan Stadium on August 23, 2026 in Nashville, Tennessee.",
+      "credit": "Photo by Justin Ford/Getty Images",
+      "eventDate": "2026-08-23",
+      "alt": "NASHVILLE, TENNESSEE - AUGUST 23: Drew Lock #2 of the Seattle Seahawks hands the ball off to Jacardia Wright #31 of the Seattle Seahawks during the first half of a preseason game against the Tennessee Titans at Nissan Stadium on August 23, 2026 in Nashville, Tennessee."
+    }
+  },
+  "sha256": {
+    "88261a929f8d3a7c98785e59c742fa106fc15f4a551d276d478e1bed42f906c4": "2291753684",
+    "ca3333b52ab32b0b2bea599324aac810096e0d538a3734e98842d0950b546c46": "2260614489",
+    "466d6047731b24335c4be1c1a504106f2cfa45d5db46bf11091e74e736565661": "2260614489",
+    "308fe3fe4718bb60107acddf31d8812a9f273c6aa3e5dca9bdef6be454764e7e": "2258183135",
+    "ec0c786154d7a3e18a6d5421a7e6e62fb688b73a1f8014d57314e3776095355f": "2260601545"
+  }
+}

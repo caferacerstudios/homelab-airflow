@@ -105,6 +105,9 @@ class DailyNewsTests(unittest.TestCase):
             data=png(i); (self.runtime/f'photos/{i}.png').write_bytes(data)
             hashes.append(news.digest(data))
         (self.runtime/'photos/copy.png').write_bytes(png(0))
+        credits = {f'{i}.png': {'caption': f'Offline photo fixture {i}.', 'credit': 'Fixture photographer'} for i in range(8)}
+        credits['copy.png'] = credits['0.png']
+        news.atomic_json(self.runtime/'photos/metadata.json', credits)
         pool,_=news.photo_pool(self.runtime)
         self.assertEqual(len(pool),8)
         blocked=[{'hero':{'src':f'/images/news/generated/{h}.png'}} for h in hashes[:7]]
@@ -118,6 +121,7 @@ class DailyNewsTests(unittest.TestCase):
 
     def test_deleted_input_photo_does_not_remove_historical_asset(self):
         photo=self.runtime/'photos/a.png'; photo.write_bytes(png(7))
+        news.atomic_json(self.runtime/'photos/metadata.json', {'a.png': {'caption': 'Offline photo fixture.', 'credit': 'Fixture photographer'}})
         receipt=self.collect()
         first=news.read_json((self.runtime/'current').resolve()/'articles.json')['articles'][0]
         filename=first['hero']['src'].split('/')[-1]

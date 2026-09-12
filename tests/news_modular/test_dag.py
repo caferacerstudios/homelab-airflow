@@ -92,6 +92,7 @@ class DailyNewsDagTests(unittest.TestCase):
         dag = self.load()
         context = {"run_id": "manual", "logical_date": pendulum.datetime(2026, 9, 12, 16, tz="UTC")}
         with patch("airflow.sdk.get_current_context", return_value=context), \
+                patch("fan_zone_photo_credits.read_task_catalog", return_value={"schema_version": 1, "assets": {}, "sha256": {}}) as credits, \
                 patch("sfz_news_hook.NewsRefreshHook.refresh") as news, \
                 patch("sfz_news_hook.validate_receipt") as validate_receipt, \
                 patch("fan_zone_tasks.save_receipt") as save_receipt:
@@ -103,7 +104,7 @@ class DailyNewsDagTests(unittest.TestCase):
                 news.return_value = receipt
                 result = generator.python_callable(*generator.op_args, **generator.op_kwargs)
                 self.assertEqual(result, {"site": site, "receipt": receipt})
-                news.assert_called_with("manual", "2026-09-12", site)
+                news.assert_called_with("manual", "2026-09-12", site, photo_credits=credits.return_value)
                 expected = f"/opt/airflow/artifacts/{slug}/news/receipt.json"
                 save_receipt.return_value = expected
                 saver = dag.get_task(f"save_run_receipt_{slug}")
@@ -111,6 +112,7 @@ class DailyNewsDagTests(unittest.TestCase):
                 validate_receipt.assert_called_with(receipt, "manual", "2026-09-12", site)
                 save_receipt.assert_called_with(receipt, "manual", site)
             self.assertEqual(news.call_count, 2)
+            self.assertEqual(credits.call_count, 2)
             self.assertEqual(save_receipt.call_count, 2)
 
 

@@ -26,7 +26,9 @@ def command_arguments(command):
         if base64.urlsafe_b64encode(raw).decode().rstrip('=') != token:
             raise ValueError('Noncanonical encoding')
         request = json.loads(raw)
-        allowed = ({'site'},) if mode == 'check' else ({'runId', 'publicationDay'}, {'runId', 'publicationDay', 'site'})
+        allowed = ({'site'}, {'site', 'photoCredits'}, {'photoCredits'}) if mode == 'check' else (
+            {'runId', 'publicationDay'}, {'runId', 'publicationDay', 'site'},
+            {'runId', 'publicationDay', 'photoCredits'}, {'runId', 'publicationDay', 'site', 'photoCredits'})
         if not isinstance(request, dict) or set(request) not in allowed:
             raise ValueError('Unexpected request fields')
         extra = []
@@ -36,6 +38,10 @@ def command_arguments(command):
             from news_core import site_settings
             site = site_settings(request['site'])
             extra = ['--site-json=' + json.dumps(site, separators=(',', ':'))]
+        if 'photoCredits' in request:
+            from news_core import validate_catalog
+            credits = validate_catalog(request['photoCredits'])
+            extra.append('--photo-credits-json=' + json.dumps(credits, separators=(',', ':'), ensure_ascii=False))
         if mode == 'check':
             return ['--check', *extra]
         run_id, day = request['runId'], request['publicationDay']

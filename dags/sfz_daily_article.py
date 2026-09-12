@@ -28,8 +28,10 @@ def sfz_daily_article():
     def generate_article(site):
         from airflow.sdk import get_current_context
         from sfz_news_hook import NewsRefreshHook, publication_day
+        from fan_zone_photo_credits import read_task_catalog
         context = get_current_context()
-        receipt = NewsRefreshHook().refresh(context["run_id"], publication_day(context, site["timezone"]), site)
+        receipt = NewsRefreshHook().refresh(context["run_id"], publication_day(context, site["timezone"]), site,
+                                           photo_credits=read_task_catalog())
         return {"site": site, "receipt": receipt}
 
     @task(execution_timeout=timedelta(minutes=2))

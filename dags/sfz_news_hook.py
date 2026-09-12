@@ -1,8 +1,26 @@
 """Invoke the restricted news runner with the selected team's configuration."""
 from datetime import date, datetime
+import base64
 import json
 import re
 from zoneinfo import ZoneInfo
+
+
+def encode_news_request(run_id, day, site=None, photo_credits=None):
+    from fan_zone_tasks import encode_request, MAX_REQUEST_BYTES, MAX_TOKEN_BYTES
+    token = encode_request(run_id, site, day)
+    if photo_credits is None:
+        return token
+    from fan_zone_photo_credits import validate_catalog
+    request = json.loads(base64.urlsafe_b64decode(token + '=' * (-len(token) % 4)))
+    request['photoCredits'] = validate_catalog(photo_credits)
+    raw = json.dumps(request, separators=(',', ':'), ensure_ascii=False).encode()
+    if len(raw) > MAX_REQUEST_BYTES:
+        raise ValueError('News run request with photo credits is too large')
+    token = base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+    if len(token) > MAX_TOKEN_BYTES:
+        raise ValueError('News run token with photo credits is too large')
+    return token
 
 
 def publication_day(context, timezone='America/Los_Angeles'):
@@ -42,12 +60,11 @@ class NewsRefreshHook:
     def __init__(self, ssh_conn_id='sfz_news_host'):
         self.ssh_conn_id = ssh_conn_id
 
-    def refresh(self, run_id, day, site=None):
+    def refresh(self, run_id, day, site=None, photo_credits=None):
         from airflow.providers.ssh.hooks.ssh import SSHHook
-        from fan_zone_tasks import encode_request
         if date.fromisoformat(day).isoformat() != day:
             raise ValueError('Invalid news run request')
-        token = encode_request(run_id, site, day)
+        token = encode_news_request(run_id, day, site, photo_credits)
         hook = SSHHook(ssh_conn_id=self.ssh_conn_id, conn_timeout=15, cmd_timeout=720, keepalive_interval=30, conn_retry_attempts=1)
         with hook.get_conn() as client:
             status, stdout, _ = hook.exec_ssh_client_command(client, 'refresh ' + token, get_pty=False, environment=None, timeout=720)

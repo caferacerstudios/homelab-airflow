@@ -32,6 +32,11 @@ SEATTLE_CATEGORIES = ['News', 'Analysis', 'Contract Strategy', 'Roster', 'Injuri
 FALLBACK = dict(src='/images/news/newsroom-field.svg', alt='Abstract football field lines in Seahawks Fan Zone colors', width=1200, height=675, caption='Seahawks Fan Zone illustration.')
 CODE_FILES = ['scripts/export-news-catalog.mjs', 'scripts/import-news-snapshot.mjs', 'src/lib/news.ts', 'src/lib/news-artifacts.mjs']
 
+_DAGS_PATH = str(Path(__file__).resolve().parents[2] / 'dags')
+if _DAGS_PATH not in sys.path:
+    sys.path.insert(0, _DAGS_PATH)
+from fan_zone_photo_credits import format_caption, load_catalog, resolve_credit, validate_catalog
+
 
 def site_settings(site=None):
     if site is None:
@@ -268,9 +273,18 @@ def image_info(data):
     return kind, w, h
 
 
-def photo_pool(runtime, photos=None):
+def photo_credit_catalog(runtime, supplied=None):
+    if supplied is not None:
+        return validate_catalog(supplied)
+    retained = Path(runtime) / 'photo-credits.json'
+    return load_catalog(retained if retained.is_file() else None)
+
+
+def photo_pool(runtime, photos=None, photo_credits=None):
     directory = Path(photos) if photos is not None else runtime / 'photos'
+    credits = photo_credit_catalog(runtime, photo_credits)
     pool = {}
+    rejected = set()
     notes = []
     metadata_path = directory / 'metadata.json'
     metadata = read_json(metadata_path) if metadata_path.exists() else {}
@@ -279,6 +293,7 @@ def photo_pool(runtime, photos=None):
     for photo in sorted(directory.iterdir()):
         if photo.suffix.lower() not in ('.jpg', '.jpeg', '.png', '.webp'):
             continue
+        key = None
         try:
             if photo.is_symlink() or not photo.is_file() or photo.stat().st_size > 25 * 1024 * 1024:
                 raise ValueError('Expected a regular photo under 25 MiB')
@@ -288,8 +303,19 @@ def photo_pool(runtime, photos=None):
             meta = metadata.get(photo.name, {})
             if not isinstance(meta, dict) or any(not isinstance(meta.get(k, ''), str) for k in ('alt', 'caption', 'credit')):
                 raise ValueError('Invalid photo metadata')
-            pool.setdefault(key, (data, kind, w, h, meta))
+            approved = resolve_credit(credits, filename=photo.name, sha256=key, metadata=meta)
+            if approved is None:
+                notes.append(f'Ignored photo {photo.name}: no approved asset match or explicit caption and credit')
+                continue
+            if key in rejected:
+                continue
+            if key in pool and pool[key][4] != approved:
+                raise ValueError('Conflicting credits for identical photo bytes')
+            pool.setdefault(key, (data, kind, w, h, approved))
         except (ValueError, OSError, IndexError, struct.error) as exc:
+            if key is not None:
+                pool.pop(key, None)
+                rejected.add(key)
             notes.append(f'Ignored photo {photo.name}: {exc}')
     return pool, notes
 
@@ -315,9 +341,9 @@ def visible_articles(authored, accepted, now):
                   key=lambda a: -stamp(a['publishedAt']).timestamp())[:7]
 
 
-def select_photo(runtime, source, blocked, choose=random.choice, site=None):
+def select_photo(runtime, source, blocked, choose=random.choice, site=None, photo_credits=None, publication_day=None):
     selected = site_settings(site)
-    pool, notes = photo_pool(runtime, selected['news_photos_dir'] if site is not None else None)
+    pool, notes = photo_pool(runtime, selected['news_photos_dir'] if site is not None else None, photo_credits)
     used = {image_identity(a.get('hero', {}), source) for a in blocked}
     candidates = sorted(set(pool) - used)
     if not candidates:
@@ -331,12 +357,14 @@ def select_photo(runtime, source, blocked, choose=random.choice, site=None):
         raise ValueError('Retained news image checksum mismatch')
     if not dest.exists():
         atomic_bytes(dest, data)
-    brand = selected['name'] + ' Fan Zone'
-    caption = meta.get('caption') or f'Photo selected from the {brand} photo collection; illustrative image.'
-    if meta.get('credit'):
-        caption += ' Photo: ' + meta['credit']
-    return dict(src='/images/news/generated/' + filename, alt=meta.get('alt') or f'Photo from the {brand} collection',
-                width=width, height=height, caption=caption, sha256=key), notes
+    alt = meta.get('alt') or (meta['caption'] if len(meta['caption']) <= 1000 else f"Photo from the {selected['name']} Fan Zone collection")
+    hero = dict(src='/images/news/generated/' + filename, alt=alt,
+                width=width, height=height, caption=format_caption(meta, publication_day), credit=meta['credit'], sha256=key)
+    if meta.get('gettyAssetId'):
+        hero['gettyAssetId'] = meta['gettyAssetId']
+    if meta.get('eventDate'):
+        hero['eventDate'] = meta['eventDate']
+    return hero, notes
 
 
 def response_text(response):
@@ -638,7 +666,7 @@ def publish(runtime, run_id, day, commit, generated_count, usage, notes, site=No
             shutil.rmtree(pending)
 
 
-def collect(run_id, day, source=SOURCE, runtime=RUNTIME, catalog_fn=source_catalog, generate_fn=generate, current_time=None, site=None):
+def collect(run_id, day, source=SOURCE, runtime=RUNTIME, catalog_fn=source_catalog, generate_fn=generate, current_time=None, site=None, photo_credits=None):
     selected = site_settings(site)
     if site is not None:
         source = Path(selected['website_root'])
@@ -650,11 +678,14 @@ def collect(run_id, day, source=SOURCE, runtime=RUNTIME, catalog_fn=source_catal
         raise ValueError('Publication day must be an ISO date in the configured timezone, not in the future')
     if not isinstance(run_id, str) or not run_id.strip() or len(run_id.encode()) > 512 or any(ord(c) < 32 for c in run_id):
         raise ValueError('Invalid run ID')
+    credits = photo_credit_catalog(runtime, photo_credits)
     with (runtime / 'generation.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('Another news generation is running') from None
+        if photo_credits is not None:
+            atomic_json(runtime / 'photo-credits.json', credits)
         directory = runtime / 'days' / day
         directory.mkdir(parents=True, exist_ok=True)
         prior = accepted_articles(runtime, site)
@@ -677,7 +708,7 @@ def collect(run_id, day, source=SOURCE, runtime=RUNTIME, catalog_fn=source_catal
         args = (directory, api_key(SOURCE if site is not None else source), model, day, now, previous)
         article, usage = generate_fn(*args, site=site) if site is not None else generate_fn(*args)
         assert_team(article, selected)
-        article['hero'], notes = select_photo(runtime, source, blocked, site=site)
+        article['hero'], notes = select_photo(runtime, source, blocked, site=site, photo_credits=credits, publication_day=day)
         visible_articles(catalog['authored'], prior + [article], now)
         atomic_json(target, article)  # Acceptance precedes snapshot publication for crash recovery.
         return publish(runtime, run_id, day, commit, 1, usage, notes, site=site)
