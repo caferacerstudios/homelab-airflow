@@ -77,7 +77,7 @@ This example reads the checked-in fallback. Use the live Variable's selected sit
 
 ## First research publication and website preview
 
-After installation, use the Airflow UI to trigger one manual run of `sfz_game_guides` and inspect both Seattle tasks. Keep its scheduled state paused until the first publication is reviewed. This manual run makes paid OpenAI requests; the source-free check above does not.
+After installation, unpause `sfz_game_guides`, trigger one manual run in the Airflow UI and inspect both Seattle tasks. Airflow also requires an unpaused DAG to execute manual tasks. Check for an already queued or running scheduled run before triggering another. If preview review is still pending, pause the DAG after the run finishes. This run makes paid OpenAI requests; the source-free check above does not.
 
 The completed snapshot contains:
 
@@ -96,6 +96,34 @@ Review the Game Day Guide and Where to Watch sections on `/games/<gameId>` in pr
 ## Failure handling and recovery
 
 Failed research or validation retains the previous good guide publication. Do not replace existing JSON with an empty fallback after a provider error. Preserve failed run evidence and read its log before retrying; a provider timeout does not prove the request was unbilled. Completed-run reuse and cached responses reduce duplicate requests but are not an external billing guarantee.
+
+### Source-ID validation failure
+
+The initial writer schema allowed empty or arbitrary `sourceIds`, while the
+publication validator required one to four distinct IDs from the actual cited
+source registry. A response could satisfy the provider schema and still fail
+with `Every guide fact must cite known retrieved source IDs`. The old writer
+response was then reused for the same event, policy and research day.
+
+The writer now receives a schema restricted to the retrieved IDs, with one to
+four IDs per fact. Missing information must use null or empty item lists.
+Duplicate IDs, unsupported claims and incorrect event dates remain rejected.
+Validation errors identify the affected field without logging research bodies.
+
+Writing uses the separate `guide-citations-v2` cache stage. The research prompt
+and cache identity are unchanged, so an eligible cached research response is
+reused and only the corrected writing step needs a new request. Original
+`guide-request.json` and `guide-response.json` files are retained for inspection.
+Fresh research still uses at most one research request and one writing request
+per selected game; there is no automatic repair loop. A later research day or
+changed event/policy can require new research as before.
+
+After committing the fix in `/home/laurawkr/homelab-airflow`, clear the failed
+`refresh_guides_seahawks` task and its downstream receipt task for the affected
+run, or trigger one new run if none is active. Keep the DAG unpaused while the
+tasks run. No installer rerun, container restart, cache deletion or website build
+is needed for this correction. Review the first accepted snapshot before using
+it in a website build.
 
 A malformed activation policy stops this DAG instead of enabling every active team. Enabling a team for other pipelines does not enable its guide research. Adding guide teams requires the separate policy entry, approved existing host registration, usable team NFL input and guide installer checks.
 
