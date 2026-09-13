@@ -44,7 +44,7 @@ def encoded(value):
 
 class SupportedDraftTests(unittest.TestCase):
     def filter(self, draft, sources=fixtures.SOURCES, game=fixtures.GAME):
-        return core.supported_draft(draft, sources, game)
+        return core.supported_draft(draft, sources, game, fixtures.SITE)
 
     def test_second_alert_is_omitted_and_supported_fact_is_unchanged(self):
         draft = fixtures.draft_fixture()
@@ -179,7 +179,7 @@ class EvidenceCacheTests(unittest.TestCase):
             guide, watch, evidence = generate(directory, no_api)
             self.assertEqual(len(guide['alerts']), 1)
             self.assertEqual(evidence['openaiRequestCount'], 0)
-            self.assertEqual(evidence['validationVersion'], 'guide-event-evidence-v1')
+            self.assertEqual(evidence['validationVersion'], 'guide-official-link-v1')
             self.assertEqual(evidence['writingVersion'], 'guide-citations-v2')
             validation = json.loads((directory / 'validation.json').read_text())
             self.assertEqual(validation['validationVersion'], evidence['validationVersion'])
