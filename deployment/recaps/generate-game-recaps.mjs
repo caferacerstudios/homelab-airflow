@@ -8,7 +8,7 @@ import { createNflApiClient } from "./nfl-api-client.mjs";
 import { schedulePhase, scheduleState } from "./recap-schedule.mjs";
 import { atomicWriteJson, isCompleteRecap, validateGeneratedRecap } from "./recap-artifacts.mjs";
 
-const MODEL = "gpt-4o-mini";
+const MODEL = "gpt-5.6-sol";
 const readJson = (filename) => JSON.parse(fs.readFileSync(filename, "utf8"));
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const teamAbbr = (team, fallback = "") => String(team?.abbreviation || team?.abbr || fallback).toUpperCase();
@@ -83,7 +83,7 @@ async function openaiStructuredRecap(input, { fetchImpl, apiKey }) {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(90000),
-      body: JSON.stringify({ model: MODEL, max_output_tokens: 6000, input, text: { format: { type: "json_schema", name: "game_recap", strict: true, schema } } }),
+      body: JSON.stringify({ model: MODEL, max_output_tokens: 10000, input, text: { format: { type: "json_schema", name: "game_recap", strict: true, schema } } }),
     });
   } catch { throw new Error("OpenAI recap request failed or timed out"); }
   if (!response.ok) {
