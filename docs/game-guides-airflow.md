@@ -161,6 +161,48 @@ clear EventSpy tasks as part of this guide repair; that pipeline has separate
 receipt semantics. This change does not install services, rebuild a website or
 alter other pipelines' data.
 
+### Optional official-game link outside the registered domains
+
+The Broncos retry at `2026-09-13T00:39:57Z` reached writing/publication validation
+and failed with `Official game link must belong to the registered team or NFL`.
+The supplied log does not include the rejected URL. This is separate from the
+earlier missing `/var/lib/boncosfz-guides` installation prerequisite.
+
+The writer can nominate any retrieved source ID for the optional
+`officialGameSourceId`. Publication accepts only `nfl.com` or the selected team's
+registered `source_domains`, including their subdomains. A retrieved stadium or
+opponent page can support useful guidance while failing that optional-link rule.
+Validation now sets only a known, safe, but ineligible official-link candidate
+to null and records its field, source ID and reason in `validation.json` and
+accepted `evidence.json`. It preserves the original response and all supported
+facts. It does not invent a replacement link or expand the allowed domains.
+
+Unknown IDs, unsafe source URLs and malformed drafts still fail. A grounded
+summary and at least two useful items from two pages are still required; an
+omitted link cannot supply an otherwise missing second source. Direct record
+creation and snapshot verification both enforce the same official-link domain
+rule. Validation version is `guide-official-link-v1`.
+
+The repair leaves research/writer prompts, schemas, `guide-citations-v2` and the
+research-policy cache identity unchanged. An eligible failed cached draft can
+therefore be revalidated with zero new provider calls. Changed event, day or
+policy inputs and other uncached games retain the normal request budget.
+
+After merging, pause only `sfz_game_guides` and let running guide tasks finish.
+Then update the normal checkout as `laurawkr`:
+
+```bash
+cd /home/laurawkr/homelab-airflow &&
+git switch main &&
+git pull --ff-only origin main
+```
+
+Clear the affected failed guide refresh task and its downstream receipt task in
+that run, then unpause the DAG. Leave successful task pairs untouched. Inspect
+any other team's error before assuming it has the same cause. This code-only
+repair needs no installer rerun or website build. Review the accepted snapshot
+and omission audit before a separately enabled website preview/publication.
+
 ### Upgrade from Seattle-only guide activation
 
 The initial implementation added a second `enabled_sites: ["seahawks"]` filter.
@@ -197,10 +239,18 @@ Run the new tests with the deployed Airflow 3.3.1 / SSH-provider environment:
 ```bash
 python3 -m pytest -q \
   tests/test_guides_config.py tests/test_guides_core.py tests/test_guides_dag.py \
-  tests/test_guides_hook.py tests/test_guides_ssh.py tests/test_guides_install.py
+  tests/test_guides_hook.py tests/test_guides_ssh.py tests/test_guides_install.py \
+  tests/test_guides_citations.py tests/test_guides_event_evidence.py \
+  tests/test_guides_official_links.py
 ```
 
 Producer tests cover payload identity, evidence validation, bounded selection and publication behavior separately. The orchestration tests exercise the actual paused Airflow graph and Pacific DST schedule, shared active-site selection, receipt isolation and restricted SSH command grammar without live source requests. Host installation and rendered preview remain deployment checks to perform on `wkr`.
+
+The optional official-link repair passed 65 guide tests under Airflow 3.3.1.
+Its nine regressions cover registered-domain boundaries, safe candidate omission,
+unknown/unsafe hard failures, unchanged cached request/response bytes with zero
+new calls, minimum-content preservation and snapshot domain verification. These
+are local mocked-provider tests, not a successful live Broncos retry receipt.
 
 The shared-active-team correction passed all 56 guide tests under Airflow 3.3.1,
 including the five-team/ten-task graph, disabled-team behavior, existing citation

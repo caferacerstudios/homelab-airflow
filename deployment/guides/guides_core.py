@@ -31,7 +31,7 @@ FILES = ('game-day-guides.json', 'watch-guide.json')
 PROMPT_VERSION = 'fan-zone-guides-v1'
 # Version writing separately so a rejected v1 draft does not force new research.
 WRITING_STAGE = 'guide-citations-v2'
-VALIDATION_VERSION = 'guide-event-evidence-v1'
+VALIDATION_VERSION = 'guide-official-link-v1'
 LOGGER = logging.getLogger(__name__)
 for folder in (PROJECT / 'deployment/news', PROJECT / 'deployment/roster', PROJECT / 'dags'):
     if str(folder) not in sys.path:
@@ -407,7 +407,16 @@ def validate_fact(row: dict, source_map: dict, game: dict, *, event_only=False) 
     return result, ids
 
 
-def supported_draft(draft: dict, sources: list[dict], game: dict) -> tuple[dict, list[dict]]:
+def official_game_url_allowed(url: str, site: dict) -> bool:
+    """Keep the optional official link within the existing registered domains."""
+    if not valid_url(url):
+        return False
+    host = urllib.parse.urlsplit(url).hostname
+    allowed = ['nfl.com', *site.get('source_domains', [])]
+    return any(host == domain or host.endswith('.' + domain) for domain in allowed)
+
+
+def supported_draft(draft: dict, sources: list[dict], game: dict, site: dict) -> tuple[dict, list[dict]]:
     """Omit unconfirmed candidates without upgrading or rewriting their evidence.
 
     The cached writer response remains intact. The resulting candidate must
@@ -442,6 +451,17 @@ def supported_draft(draft: dict, sources: list[dict], game: dict) -> tuple[dict,
             else:
                 if not singleton:
                     candidate[field].append(deepcopy(row))
+    source_id = draft['officialGameSourceId']
+    if source_id is not None:
+        if source_id not in source_map:
+            raise ValueError('Official game link must be a retrieved source ID')
+        if not official_game_url_allowed(source_map[source_id]['url'], site):
+            # A retrieved source can support venue guidance without qualifying
+            # as the selected team's official game link. Keep its other facts
+            # and raw evidence; do not relabel it or invent a replacement URL.
+            candidate['officialGameSourceId'] = None
+            omitted.append({'field': 'officialGameSourceId', 'sourceIds': [source_id],
+                            'reason': 'Retrieved official-game candidate is outside the registered team/NFL domains'})
     return candidate, omitted
 
 
@@ -508,9 +528,7 @@ def make_records(draft: dict, sources: list[dict], game: dict, site: dict, now: 
         if not isinstance(source_id, str) or source_id not in source_map:
             raise ValueError('Official game link must be a retrieved source ID')
         url = source_map[source_id]['url']
-        host = urllib.parse.urlsplit(url).hostname
-        allowed = ['nfl.com', *site.get('source_domains', [])]
-        if not any(host == domain or host.endswith('.' + domain) for domain in allowed):
+        if not official_game_url_allowed(url, site):
             raise ValueError('Official game link must belong to the registered team or NFL')
         watch['officialGameUrl'] = url
         used.add(source_id)
@@ -604,7 +622,7 @@ def generate(directory: Path, key: str, config: dict, game: dict, site: dict, no
     }, key, call)
     draft = json.loads(response_text(writing))
     validate_schema(draft, writing_schema)
-    draft, omitted = supported_draft(draft, sources, game)
+    draft, omitted = supported_draft(draft, sources, game, site)
     validation = {'validationVersion': VALIDATION_VERSION, 'event': game, 'omittedFacts': omitted}
     atomic_json(directory / 'validation.json', validation)
     for entry in omitted:
@@ -685,6 +703,8 @@ def validate_record_pair(guide: dict, watch: dict, game: dict, site: dict) -> No
                     raise ValueError('Guide pipeline does not publish event prices')
         if record.get('officialGameUrl') is not None and record['officialGameUrl'] not in urls:
             raise ValueError('Official game link was not retrieved')
+        if record.get('officialGameUrl') is not None and not official_game_url_allowed(record['officialGameUrl'], site):
+            raise ValueError('Official game link must belong to the registered team or NFL')
     text(guide.get('summary'))
     if watch.get('status') not in ('scheduled', 'tbd', 'completed'):
         raise ValueError('Watch guide status is invalid')
