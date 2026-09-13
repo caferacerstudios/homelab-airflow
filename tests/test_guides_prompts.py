@@ -1,4 +1,4 @@
-"""Detailed prompt rollout keeps evidence caches and accepted publications safe."""
+"""Prompt rollout keeps evidence caches and accepted publications safe."""
 from copy import deepcopy
 from datetime import timedelta
 import importlib.util
@@ -14,7 +14,7 @@ spec = importlib.util.spec_from_file_location(
 fixtures = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixtures)
 core = fixtures.core
-LEGACY_PROMPT_VERSION = 'fan-zone-guides-v1'
+LEGACY_PROMPT_VERSION = 'fan-zone-guides-v2-detailed'
 
 
 def file_bytes(directory):
@@ -91,7 +91,7 @@ class PromptRolloutTests(unittest.TestCase):
     def test_fresh_accepted_old_prompt_guides_are_not_forced_to_regenerate(self):
         self.assertNotEqual(core.PROMPT_VERSION, LEGACY_PROMPT_VERSION)
         with patch.object(core, 'PROMPT_VERSION', LEGACY_PROMPT_VERSION):
-            initial = self.collect('accepted-v1-run')
+            initial = self.collect('accepted-old-prompt-run')
         original_path = Path(initial['snapshotPath'])
         original_bytes = file_bytes(original_path)
         original_records = core.verify_snapshot(original_path, fixtures.SITE)[1:]
@@ -100,7 +100,7 @@ class PromptRolloutTests(unittest.TestCase):
             self.fail('A prompt update must not force a fresh accepted guide to regenerate')
 
         with patch.object(core, 'credential', side_effect=no_generation):
-            result = self.collect('next-v2-run', fixtures.NOW + timedelta(hours=1), no_generation)
+            result = self.collect('next-prompt-run', fixtures.NOW + timedelta(hours=1), no_generation)
         self.assertFalse(result['reused'])
         self.assertEqual(result['openaiRequestCount'], 0)
         self.assertEqual(result['generatedGameIds'], [])
