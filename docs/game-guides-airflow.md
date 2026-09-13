@@ -97,6 +97,61 @@ Review the Game Day Guide and Where to Watch sections on `/games/<gameId>` in pr
 
 Failed research or validation retains the previous good guide publication. Do not replace existing JSON with an empty fallback after a provider error. Preserve failed run evidence and read its log before retrying; a provider timeout does not prove the request was unbilled. Completed-run reuse and cached responses reduce duplicate requests but are not an external billing guarantee.
 
+### Detailed reporting and writing prompts (September 13, 2026)
+
+The Seattle run at `2026-09-13T19:50:59Z` failed the existing minimum-content
+check after research and writing. Its log does not identify which required
+component was missing. The first Seattle guide, game `1392216` in
+[the original website collection](https://github.com/caferacerstudios/seahawks-fan-zone/blob/main/src/data/nfl/game-day-guides.json),
+provides the editorial benchmark: roughly 1,100 words with distinct transport
+choices, parking details, entry preparation, a useful arrival timeline and named
+watch-party options. Its event-specific facts are not reusable for another game.
+
+The research and writing prompts in `deployment/guides/guides_core.py` now ask
+for a detailed reporting brief and practical local guide instead of a concise
+brief and compact prose. Research establishes useful applicable venue, parking
+and transport policies first, then investigates dated changes, named events and
+viewing options. The writer targets 900–1,300 useful words and a 90–150-word
+summary when supported. It preserves concrete routes/stations, return-trip
+limitations, reservation/access requirements, bag rules, and documented party
+locations and times. These are editorial targets, not quotas or new validators.
+
+Sparse special-event announcements should leave event-only sections sparse;
+they should not erase a supported summary and useful ordinary arrival/entry
+guidance. Unconfirmed events cannot be relabeled as standing policies. Home and
+away locations remain separate, duplicate timeline reminders are discouraged,
+and no old game's facts may be copied to fill gaps. Citations, dates, schema,
+minimum content, and publication checks are unchanged. The prompt cannot
+guarantee a successful guide when the retrieved evidence is insufficient.
+
+`PROMPT_VERSION` is now `fan-zone-guides-v2-detailed`. It changes the evidence
+cache identity because cached requests require an exact payload match. Old
+research, drafts and validation audits remain untouched. An eligible game with
+an old failed draft receives new research and writing under the revised prompts;
+it is not a zero-request revalidation of that draft. `WRITING_STAGE` remains
+`guide-citations-v2` and validation remains `guide-official-link-v1`. The
+historical zero-request recovery notes below describe those earlier fixes alone.
+
+The model, six-call web-search budget, output limits and maximum of one research
+plus one writing request per selected game remain unchanged. New prompts add
+input text and can produce longer output, so unchanged request limits do not
+mean unchanged token cost. A Seattle task can select up to three games (six
+Responses requests). Fresh accepted guides and completed runs still reuse;
+this change does not force a rewrite of accepted history or every team.
+
+After review and merge, pause only `sfz_game_guides` and let any running guide
+task finish before pulling the reviewed main revision into the normal clean
+`/home/laurawkr/homelab-airflow` checkout. Clear only the failed Seattle refresh
+and its downstream receipt for the affected run, then unpause the DAG. Leave
+successful task pairs unchanged. The host uses this source checkout, so this
+prompt update needs no installer, container restart or cache deletion.
+
+Inspect the resulting receipt, `validation.json` and accepted guide for depth,
+correct locations and source support. A code/test result does not establish
+that a live generated guide is better. Review the resulting guide in an enabled
+website preview before a separately chosen production build; changing the prompt
+or running the DAG does not rebuild deployed static pages.
+
 ### Source-ID validation failure
 
 The initial writer schema allowed empty or arbitrary `sourceIds`, while the
@@ -110,9 +165,10 @@ four IDs per fact. Missing information must use null or empty item lists.
 Duplicate IDs, unsupported claims and incorrect event dates remain rejected.
 Validation errors identify the affected field without logging research bodies.
 
-Writing uses the separate `guide-citations-v2` cache stage. The research prompt
-and cache identity are unchanged, so an eligible cached research response is
-reused and only the corrected writing step needs a new request. Original
+This citation repair introduced the separate `guide-citations-v2` cache stage.
+That repair alone left the research prompt and cache identity unchanged, so an
+eligible cached research response was reused and only the corrected writing
+step needed a new request. Original
 `guide-request.json` and `guide-response.json` files are retained for inspection.
 Fresh research still uses at most one research request and one writing request
 per selected game; there is no automatic repair loop. A later research day or
@@ -149,8 +205,8 @@ metadata, including when the remaining-content check fails. An accepted draft's
 `evidence.json` also includes `omittedFacts` and the validation version. The raw
 research and writer request/response files are retained unchanged.
 
-The research prompt, writer prompt, schema and cache stages are unchanged by this
-correction. An eligible cached failed draft can therefore be checked again with
+The research prompt, writer prompt, schema and cache stages were unchanged by this
+validation-only correction. An eligible cached failed draft could be checked again with
 zero new provider requests. Uncached games or a changed research day/event/policy
 retain the normal request budget. No automatic model repair request is added.
 
@@ -183,9 +239,9 @@ omitted link cannot supply an otherwise missing second source. Direct record
 creation and snapshot verification both enforce the same official-link domain
 rule. Validation version is `guide-official-link-v1`.
 
-The repair leaves research/writer prompts, schemas, `guide-citations-v2` and the
-research-policy cache identity unchanged. An eligible failed cached draft can
-therefore be revalidated with zero new provider calls. Changed event, day or
+The official-link repair alone left research/writer prompts, schemas,
+`guide-citations-v2` and the research-policy cache identity unchanged. An eligible
+failed cached draft could therefore be revalidated with zero new provider calls. Changed event, day or
 policy inputs and other uncached games retain the normal request budget.
 
 After merging, pause only `sfz_game_guides` and let running guide tasks finish.
@@ -241,10 +297,16 @@ python3 -m pytest -q \
   tests/test_guides_config.py tests/test_guides_core.py tests/test_guides_dag.py \
   tests/test_guides_hook.py tests/test_guides_ssh.py tests/test_guides_install.py \
   tests/test_guides_citations.py tests/test_guides_event_evidence.py \
-  tests/test_guides_official_links.py
+  tests/test_guides_official_links.py tests/test_guides_prompts.py
 ```
 
 Producer tests cover payload identity, evidence validation, bounded selection and publication behavior separately. The orchestration tests exercise the actual paused Airflow graph and Pacific DST schedule, shared active-site selection, receipt isolation and restricted SSH command grammar without live source requests. Host installation and rendered preview remain deployment checks to perform on `wkr`.
+
+The detailed-prompt update passed 68 guide tests and 149 subtests under Airflow
+3.3.1. Three new tests exercise failed-draft cache migration, preservation of
+fresh accepted guides, and home/away request identity, sources, schema and
+request limits. These tests use mocked provider responses; they do not evaluate
+live prose quality or demonstrate a successful Seattle retry.
 
 The optional official-link repair passed 65 guide tests under Airflow 3.3.1.
 Its nine regressions cover registered-domain boundaries, safe candidate omission,

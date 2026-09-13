@@ -146,7 +146,7 @@ class OfficialLinkCacheTests(unittest.TestCase):
             guide, watch, evidence = generate(directory, no_api)
             self.assertIsNone(watch['officialGameUrl'])
             self.assertEqual(evidence['openaiRequestCount'], 0)
-            self.assertEqual(evidence['promptVersion'], 'fan-zone-guides-v1')
+            self.assertEqual(evidence['promptVersion'], 'fan-zone-guides-v2-detailed')
             self.assertEqual(evidence['writingVersion'], 'guide-citations-v2')
             self.assertEqual(evidence['validationVersion'], 'guide-official-link-v1')
             self.assertEqual(evidence['omittedFacts'][0]['field'], 'officialGameSourceId')
