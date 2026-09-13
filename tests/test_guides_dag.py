@@ -25,8 +25,9 @@ class GuidesDagTests(unittest.TestCase):
 
     def test_every_active_team_has_its_named_refresh_and_receipt_pair(self):
         sites = json.loads((ROOT / "config/active-sites.json").read_text())
+        sites["patriots"]["enabled"] = True  # Isolated activation fixture.
         dag = self.load(sites)
-        self.assertEqual(set(sites), {"seahawks", "broncos", "chiefs", "packers", "vikings"})
+        self.assertEqual(set(sites), {"seahawks", "broncos", "chiefs", "packers", "vikings", "patriots"})
         self.assertEqual(set(dag.task_ids),
                          {prefix + slug for prefix in ("refresh_guides_", "save_run_receipt_")
                           for slug in sites})
@@ -55,6 +56,7 @@ class GuidesDagTests(unittest.TestCase):
 
     def test_disabling_one_team_preserves_all_other_team_tasks(self):
         sites = json.loads((ROOT / "config/active-sites.json").read_text())
+        sites["patriots"]["enabled"] = True  # Isolated activation fixture.
         disabled = deepcopy(sites)
         disabled["seahawks"]["enabled"] = False
         self.assertEqual(set(self.load(disabled).task_ids),
@@ -63,6 +65,7 @@ class GuidesDagTests(unittest.TestCase):
 
     def test_active_sites_alone_adds_and_removes_teams(self):
         sites = json.loads((ROOT / "config/active-sites.json").read_text())
+        sites["patriots"]["enabled"] = True  # Isolated activation fixture.
         policy = (ROOT / "config/game-guides.json").read_bytes()
         subset = {"seahawks": sites["seahawks"]}
         self.assertEqual(set(self.load(subset).task_ids),
@@ -79,6 +82,7 @@ class GuidesDagTests(unittest.TestCase):
     def test_no_active_sites_produces_no_tasks(self):
         self.assertEqual(self.load({}).task_ids, [])
         sites = json.loads((ROOT / "config/active-sites.json").read_text())
+        sites["patriots"]["enabled"] = True  # Isolated activation fixture.
         for site in sites.values():
             site["enabled"] = False
         self.assertEqual(self.load(sites).task_ids, [])

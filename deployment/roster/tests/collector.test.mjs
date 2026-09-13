@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { collectTeam, parseRoster, parseTransactions, parseInjuries, reconcileRoster, reconcileTransactions, reconcileInjuries } from '../collector.mjs';
 
 const sources = JSON.parse(fs.readFileSync(new URL('../teams.json', import.meta.url)));
-const names = {seahawks:['Seattle','Seahawks'],broncos:['Denver','Broncos'],packers:['Green Bay','Packers'],vikings:['Minnesota','Vikings'],chiefs:['Kansas City','Chiefs']};
+const names = {seahawks:['Seattle','Seahawks'],broncos:['Denver','Broncos'],packers:['Green Bay','Packers'],vikings:['Minnesota','Vikings'],chiefs:['Kansas City','Chiefs'],patriots:['New England','Patriots']};
 const siteFor = slug => ({slug,city:names[slug][0],name:names[slug][1],abbreviation:sources[slug].abbreviation});
 const teamFor = slug => ({...sources[slug],rosterUrl:`https://${sources[slug].domain}/team/players-roster/`,injuriesUrl:`https://${sources[slug].domain}/team/injury-report/`,transactionsUrl:`https://${sources[slug].domain}/team/transactions/2026`});
 const now = '2026-09-12T20:00:00.000Z';
@@ -22,7 +22,7 @@ function fetcher(team, overrides={}) {
   return async url => ({ok:true,status:200,text:async()=> overrides[url] ?? (url===team.rosterUrl?rosterHtml(team):url===team.injuriesUrl?injuryHtml(team):transactionsHtml(team))});
 }
 
-test('all five teams collect correctly tagged independent artifacts with fixed official sources', async()=>{
+test('all six teams collect correctly tagged independent artifacts with fixed official sources', async()=>{
   for (const slug of Object.keys(sources)) {
     const result=await collectTeam(request(slug),{fetchImpl:fetcher(teamFor(slug))});
     for (const name of ['roster','injuries','transactions']) assert.equal(result[name].team,slug);

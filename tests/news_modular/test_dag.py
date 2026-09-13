@@ -68,6 +68,18 @@ class DailyNewsDagTests(unittest.TestCase):
         self.assertEqual(renamed.get_task("generate_article_seahawks").task_display_name,
                          "Generate article: Seattle updated Seahawks")
 
+    def test_reviewed_patriots_activation_adds_only_its_two_named_tasks(self):
+        sites = json.loads((ROOT / "config/active-sites.json").read_text())
+        original = self.load(sites)
+        self.assertNotIn("generate_article_patriots", original.task_ids)
+        sites["patriots"]["enabled"] = True
+        expanded = self.load(sites)
+        self.assertEqual(set(expanded.task_ids) - set(original.task_ids),
+                         {"generate_article_patriots", "save_run_receipt_patriots"})
+        self.assertEqual(set(original.task_ids) - set(expanded.task_ids), set())
+        self.assertEqual(expanded.get_task("generate_article_patriots").task_display_name,
+                         "Generate article: New England Patriots")
+
     def test_readable_names_survive_airflow_serialization(self):
         encoded = DagSerialization.to_dict(self.load())
         restored = DagSerialization.deserialize_dag(encoded["dag"], encoded.get("client_defaults"))

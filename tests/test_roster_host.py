@@ -246,7 +246,7 @@ class RegistryAndInstallerTests(unittest.TestCase):
         configured = sites()
         self.assertEqual(str(runner.runtime_for(configured['seahawks'])), '/var/lib/sfz-roster')
         self.assertEqual(str(runner.runtime_for(configured['broncos'])), '/var/lib/boncosfz-roster')
-        self.assertEqual(len({runner.runtime_for(site) for site in configured.values()}), 5)
+        self.assertEqual(len({runner.runtime_for(site) for site in configured.values()}), len(configured))
         configured['broncos']['news_snapshot_dir'] = '/var/lib/boncosfz-news/../../etc'
         with self.assertRaises(ValueError):
             runner.runtime_for(configured['broncos'])

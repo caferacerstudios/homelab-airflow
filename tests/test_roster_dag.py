@@ -23,8 +23,9 @@ class RosterDagTests(unittest.TestCase):
 
     def test_named_team_branches_and_existing_variable_flags(self):
         sites = json.loads((ROOT / "config/active-sites.json").read_text())
+        sites["patriots"]["enabled"] = True  # Activate only in this isolated test.
         dag = self.load(sites)
-        self.assertEqual(len(dag.tasks), 10)
+        self.assertEqual(len(dag.tasks), 2 * len(sites))
         self.assertEqual(dag.max_active_tasks, 1)
         self.assertEqual(dag.max_active_runs, 1)
         self.assertFalse(dag.catchup)
@@ -39,7 +40,7 @@ class RosterDagTests(unittest.TestCase):
         disabled["broncos"]["enabled"] = False
         dag = self.load(disabled)
         self.assertNotIn("refresh_roster_broncos", dag.task_ids)
-        self.assertEqual(len(dag.tasks), 8)
+        self.assertEqual(len(dag.tasks), 2 * (len(sites) - 1))
 
     def test_two_pacific_slots_including_dst_boundaries(self):
         dag = self.load({})

@@ -272,9 +272,9 @@ class DailyNewsTests(unittest.TestCase):
             with self.subTest(sources=sources), self.assertRaises(ValueError):
                 news.make_article(draft(), sources, '2026-09-12', news.now_utc(), 'fixture', [])
 
-    def test_marker_normalization_is_shared_by_all_five_teams(self):
+    def test_marker_normalization_is_shared_by_all_six_teams(self):
         sites = json.loads((ROOT / 'config/active-sites.json').read_text())
-        self.assertEqual(set(sites), {'seahawks', 'broncos', 'packers', 'vikings', 'chiefs'})
+        self.assertEqual(set(sites), {'seahawks', 'broncos', 'packers', 'vikings', 'chiefs', 'patriots'})
         for slug, site in sites.items():
             with self.subTest(team=slug):
                 d = draft()

@@ -138,5 +138,33 @@
     "nfl_snapshot_dir": "/var/lib/chiefsfz-nfl/current",
     "recap_snapshot_dir": "/var/lib/chiefsfz-recaps/current",
     "division": "AFC West"
+  },
+  "patriots": {
+    "enabled": false,
+    "name": "Patriots",
+    "city": "New England",
+    "abbreviation": "NE",
+    "balldontlie_team_id": 1,
+    "news_snapshot_dir": "/var/lib/patriotsfz-news/current",
+    "news_photos_dir": "/var/lib/patriotsfz-news/photos",
+    "source_domains": [
+      "patriots.com",
+      "nfl.com"
+    ],
+    "prompts": {
+      "article": "Write for New England Patriots fans. Explain the most significant verified development and what it means for the team.",
+      "recap": "Write a thorough game recap for New England Patriots fans using only the supplied final score, verified game statistics and play-by-play. Explain the turning points, decisive possessions and performances with specific evidence. Aim for 600–900 words when the evidence supports it; keep it shorter when data is limited. Distinguish verified facts from analysis. Never invent quotes, injuries, weather, playoff implications or plays. Preserve the real opponent names and describe the result from the New England perspective."
+    },
+    "slug": "patriots",
+    "website_root": "/home/laurawkr/templatefanzone",
+    "timezone": "America/Los_Angeles",
+    "eventspy": {
+      "output_dir": "/var/lib/patriotsfz-eventspy-mirror/dev/public",
+      "coverage_file": "patriots.json",
+      "schedule_file": "/var/lib/fanzone-eventspy/schedules/patriots.json"
+    },
+    "nfl_snapshot_dir": "/var/lib/patriotsfz-nfl/current",
+    "recap_snapshot_dir": "/var/lib/patriotsfz-recaps/current",
+    "division": "AFC East"
   }
 }

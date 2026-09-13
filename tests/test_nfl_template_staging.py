@@ -23,7 +23,7 @@ runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
 
 SEATTLE = {"id": 31, "abbreviation": "SEA", "full_name": "Seattle Seahawks"}
-OPPONENT = {"id": 9001, "abbreviation": "NE", "full_name": "New England Patriots"}
+OPPONENT = {"id": 9001, "abbreviation": "NYG", "full_name": "New York Giants"}
 OLD_GAME = {
     "id": 3100, "season": 2025, "season_type": "regular", "week": 1,
     "date": "2025-09-07T20:25:00Z", "status": "Final", "home_team": SEATTLE,
@@ -126,8 +126,8 @@ globalThis.fetch = async (url) => {
                  "NFL_FETCH_REPORT": str(work / "fetch-report.json")},
             capture_output=True, text=True, timeout=30)
 
-    def test_all_five_teams_execute_raw_template_with_independent_identity_and_data(self):
-        for slug in ("seahawks", "broncos", "packers", "vikings", "chiefs"):
+    def test_all_six_teams_execute_raw_template_with_independent_identity_and_data(self):
+        for slug in ("seahawks", "broncos", "packers", "vikings", "chiefs", "patriots"):
             with self.subTest(team=slug):
                 site, work = self.stage(slug)
                 result = self.fetch(work, site)
@@ -219,7 +219,7 @@ console.log(JSON.stringify(reconcileOfficialSchedule([], guide)));
         self.assertEqual(file_contents(self.source), before)
 
     def test_wrong_api_team_identity_is_rejected_before_fetching_games(self):
-        for slug in ("seahawks", "broncos", "packers", "vikings", "chiefs"):
+        for slug in ("seahawks", "broncos", "packers", "vikings", "chiefs", "patriots"):
             for mismatch in ("id", "name"):
                 with self.subTest(team=slug, mismatch=mismatch):
                     site, work = self.stage(slug, "-wrong-" + mismatch)

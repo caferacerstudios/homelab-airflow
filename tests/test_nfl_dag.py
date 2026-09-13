@@ -16,12 +16,12 @@ class DagScheduleTests(unittest.TestCase):
         sites = [{"slug": slug, "city": city, "name": name} for slug, city, name in [
             ("seahawks", "Seattle", "Seahawks"), ("broncos", "Denver", "Broncos"),
             ("packers", "Green Bay", "Packers"), ("vikings", "Minnesota", "Vikings"),
-            ("chiefs", "Kansas City", "Chiefs")]]
+            ("chiefs", "Kansas City", "Chiefs"), ("patriots", "New England", "Patriots")]]
         with patch("fan_zone_tasks.active_sites", return_value=sites):
             bag = BundleDagBag(dag_folder=str(folder / "sfz_nfl_refresh.py"), bundle_path=folder)
         self.assertEqual(bag.import_errors, {})
         dag = bag.dags["sfz_nfl_refresh"]
-        self.assertEqual(len(dag.tasks), 10)
+        self.assertEqual(len(dag.tasks), 2 * len(sites))
         for site in sites:
             slug = site["slug"]
             task = dag.get_task("refresh_nfl_snapshot_" + slug)

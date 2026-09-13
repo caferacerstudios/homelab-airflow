@@ -23,6 +23,7 @@ class ActiveTeamStateInstallationTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.base = Path(self.directory.name)
         self.sites = json.loads((ROOT / 'config/active-sites.json').read_text())
+        self.sites['patriots']['enabled'] = True  # Isolated activation fixture.
         self.roots = {slug: self.base / (slug + '-guides') for slug in self.sites}
         self.roots['seahawks'].mkdir(mode=0o755)
         self.existing = self.roots['seahawks'] / 'existing-publication.json'

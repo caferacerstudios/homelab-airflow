@@ -32,12 +32,13 @@ def configured_sites():
 
 
 class ConfigurationTests(unittest.TestCase):
-    def test_five_enabled_teams_have_distinct_pipeline_destinations(self):
+    def test_existing_enabled_teams_and_disabled_patriots_have_distinct_destinations(self):
         sites = config.validate_sites(configured_sites())
-        self.assertEqual(set(sites), {'seahawks', 'broncos', 'packers', 'vikings', 'chiefs'})
-        self.assertTrue(all(site['enabled'] for site in sites.values()))
+        self.assertEqual(set(sites), {'seahawks', 'broncos', 'packers', 'vikings', 'chiefs', 'patriots'})
+        self.assertTrue(all(site['enabled'] for slug, site in sites.items() if slug != 'patriots'))
+        self.assertFalse(sites['patriots']['enabled'])
         for field in ('news_snapshot_dir', 'nfl_snapshot_dir', 'recap_snapshot_dir'):
-            self.assertEqual(len({site[field] for site in sites.values()}), 5)
+            self.assertEqual(len({site[field] for site in sites.values()}), len(sites))
         self.assertEqual(sites['seahawks']['news_snapshot_dir'], '/var/lib/sfz-news/current')
         self.assertEqual(sites['seahawks']['nfl_snapshot_dir'], '/var/lib/sfz-nfl/current')
         self.assertEqual(sites['seahawks']['recap_snapshot_dir'], '/var/lib/sfz-recaps/current')
@@ -235,7 +236,7 @@ class InstallTests(unittest.TestCase):
             self.assertTrue(current.is_symlink())
             self.assertEqual((current.readlink(), artifact.read_bytes(), artifact.stat().st_mtime_ns), expected)
         self.assertEqual(json.loads((denver / 'config.json').read_text()), {'model': 'denver-custom-model'})
-        for slug in ('packers', 'vikings', 'chiefs'):
+        for slug in ('packers', 'vikings', 'chiefs', 'patriots'):
             runtime = installer.Path(sites[slug]['news_snapshot_dir']).parent
             self.assertEqual(json.loads((runtime / 'config.json').read_text())['model'], 'existing-custom-model')
             self.assertTrue((runtime / 'photos').is_dir())

@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / 'dags'))
 class DagScheduleTests(unittest.TestCase):
     def setUp(self):
         self.sites = json.loads((ROOT / 'config/active-sites.json').read_text())
+        self.sites['patriots']['enabled'] = True  # Isolated activation fixture.
 
     def load(self):
         with patch.object(Variable, 'get', return_value=deepcopy(self.sites)) as variable:
@@ -26,9 +27,9 @@ class DagScheduleTests(unittest.TestCase):
         variable.assert_called_once_with('fan_zone_active_sites', default=None, deserialize_json=True)
         return bag.dags['sfz_game_recaps']
 
-    def test_five_separate_named_tasks_and_dependencies(self):
+    def test_six_separate_named_tasks_and_dependencies(self):
         dag = self.load()
-        self.assertEqual(set(self.sites), {'seahawks', 'broncos', 'packers', 'vikings', 'chiefs'})
+        self.assertEqual(set(self.sites), {'seahawks', 'broncos', 'packers', 'vikings', 'chiefs', 'patriots'})
         self.assertEqual(set(dag.task_ids), {f'{prefix}_{slug}' for slug in self.sites
                          for prefix in ('generate_recaps', 'save_run_receipt')})
         for slug, site in self.sites.items():
