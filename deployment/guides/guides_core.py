@@ -659,7 +659,7 @@ def same_identity(guide: dict, game: dict) -> bool:
             and guide.get('game') == {k: game[k] for k in ('opponent', 'date', 'homeAway', 'venue', 'startsAt', 'timeConfirmed')})
 
 
-def select_games(games: dict, previous: dict, config: dict, now: datetime) -> list[dict]:
+def select_games(games: dict, previous: dict, config: dict, now: datetime, *, force_all: bool = False) -> list[dict]:
     today = now.astimezone(ZoneInfo('America/Los_Angeles')).date()
     horizon = today + timedelta(days=config['horizon_days'])
     eligible = []
@@ -672,12 +672,14 @@ def select_games(games: dict, previous: dict, config: dict, now: datetime) -> li
         old = previous.get(game['gameId'])
         valid = old is not None and same_identity(old, game)
         near = day is not None and day <= horizon
-        if valid and (not near or now - timestamp(old['lastUpdated']) < timedelta(days=config['refresh_days'])):
+        if not force_all and valid and (not near or now - timestamp(old['lastUpdated']) < timedelta(days=config['refresh_days'])):
             continue
         # Refresh nearer games first, then fill missing future-season games in
         # bounded batches. Existing far-future guides stay until their horizon.
         eligible.append((0 if near else 1, day or date.max, game['week'], game))
-    return [entry[-1] for entry in sorted(eligible, key=lambda item: item[:3])[:config['max_games_per_run']]]
+    ordered = [entry[-1] for entry in sorted(eligible, key=lambda item: item[:3])]
+    # An explicit host-only redo can exceed the ordinary DAG's batch size.
+    return ordered if force_all else ordered[:config['max_games_per_run']]
 
 
 def current_snapshot(runtime: Path) -> Path | None:
@@ -768,8 +770,10 @@ def publish_link(snapshot: Path, runtime: Path) -> None:
         link.unlink(missing_ok=True)
 
 
-def _collect(run_id: str, site: dict, *, now=None, generate_fn=generate) -> dict:
+def _collect(run_id: str, site: dict, *, now=None, generate_fn=generate, force_all: bool = False) -> dict:
     validate_run_id(run_id)
+    if type(force_all) is not bool:
+        raise ValueError('force_all must be a boolean')
     selected = site_settings(site)
     config = load_config()
     runtime = runtime_for(selected)
@@ -784,6 +788,8 @@ def _collect(run_id: str, site: dict, *, now=None, generate_fn=generate) -> dict
         previous_path = current_snapshot(runtime)
         if target.exists() or target.is_symlink():
             manifest, _, _ = verify_snapshot(target, selected, run_id)
+            if manifest.get('forceAll', False) != force_all:
+                raise ValueError('Run ID was already used with a different refresh mode; use a new run ID')
             if previous_path is None or timestamp(verify_snapshot(previous_path, selected)[0]['updatedAt']) < timestamp(manifest['updatedAt']):
                 publish_link(target, runtime)
             return {**manifest, 'snapshotPath': str(target), 'reused': True}
@@ -800,12 +806,18 @@ def _collect(run_id: str, site: dict, *, now=None, generate_fn=generate) -> dict
         guides = {gid: record for gid, record in previous_guides.items()
                   if gid in schedule['games'] and same_identity(record, schedule['games'][gid])}
         watch = {gid: previous_watch[gid] for gid in guides}
-        selected_games = select_games(schedule['games'], guides, config, clock)
+        selection_options = {'force_all': True} if force_all else {}
+        selected_games = select_games(schedule['games'], guides, config, clock, **selection_options)
         request_count, evidence_keys = 0, {}
         key = credential(selected) if selected_games else None
         for game in selected_games:
             cache_request = {'promptVersion': PROMPT_VERSION, 'event': game, 'policy': config,
                              'day': clock.astimezone(ZoneInfo('America/Los_Angeles')).date().isoformat()}
+            if force_all:
+                # Fresh run ID means fresh reporting, without deleting prior
+                # evidence. Reuse this identity on a failed retry, even tomorrow.
+                cache_request.pop('day')
+                cache_request['forceRunId'] = run_id
             cache_key = hashlib.sha256(json.dumps(cache_request, sort_keys=True).encode()).hexdigest()
             directory = cache / cache_key
             ensure_run_directory(directory)
@@ -849,6 +861,8 @@ def _collect(run_id: str, site: dict, *, now=None, generate_fn=generate) -> dict
                         'openaiRequestCount': request_count, 'generatedGameIds': [row['gameId'] for row in selected_games],
                         'gameCount': len(guides), 'inputNfl': {k: schedule[k] for k in ('season', 'updatedAt', 'manifestSha256')},
                         'evidenceKeys': evidence_keys, 'files': {name: file_hash(pending / name) for name in FILES}}
+            if force_all:
+                manifest['forceAll'] = True
             atomic_json(pending / 'manifest.json', manifest)
             verify_snapshot(pending, selected, run_id)
             sync_directory(pending)

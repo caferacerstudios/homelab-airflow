@@ -97,6 +97,50 @@ Review the Game Day Guide and Where to Watch sections on `/games/<gameId>` in pr
 
 Failed research or validation retains the previous good guide publication. Do not replace existing JSON with an empty fallback after a provider error. Preserve failed run evidence and read its log before retrying; a provider timeout does not prove the request was unbilled. Completed-run reuse and cached responses reduce duplicate requests but are not an external billing guarantee.
 
+### Force a complete refresh
+
+After merging and pulling the host command update, pause `sfz_game_guides` and
+let any running guide task finish. On `wkr`, run as `laurawkr`:
+
+```bash
+cd /home/laurawkr/homelab-airflow
+python3 -B deployment/guides/refresh_guides.py \
+  --force-all --all-active --run-id redo-guides-20260913-v2
+```
+
+Use `--team seahawks` instead of `--all-active` to redo only Seattle. Both read
+the live `fan_zone_active_sites` Variable, with the existing fallback when it is
+absent. Disabled teams are excluded. The existing installed team registry,
+input validation and collection lock still apply.
+
+This explicitly regenerates every remaining eligible regular-season game for
+the selected teams, regardless of an accepted guide's age or the normal
+three-game batch size. It makes fresh research and writing requests (up to two
+Responses requests per game). Past, completed, in-progress and postponed games
+are skipped and accepted historical records are retained. Teams run serially.
+
+The command runs directly on the host; it does not use the DAG's 33-minute SSH
+timeout or its bounded receipt hook. Allow time for the whole season. No DAG
+schedule, regular batch limit, SSH permission or research model changes.
+
+The supplied run ID identifies this redo. Run the **same command with the same
+ID** to resume after a failure: completed team publications and eligible cached
+responses are reused, including across midnight. Use a **new run ID** for a
+later intentional full redo. A run ID cannot switch between ordinary and forced
+collection after publication. Changed game identity, policy or prompt versions
+can require new evidence even on a retry.
+
+Each team's current snapshot remains available until its complete replacement
+passes the existing publication checks. Old releases and evidence are retained.
+Forced manifests record `forceAll: true`; their per-game cache keys include
+`forceRunId` instead of the ordinary daily cache key. A later team's failure does
+not roll back earlier teams that finished successfully.
+
+When finished, unpause the guide DAG and rebuild each desired website with
+`FAN_ZONE_GUIDES_ENABLED=1` using its existing team-build workflow. The force
+command itself does not build or deploy websites. It does not update an old
+guide's timestamp without doing the research.
+
 ### Detailed reporting and writing prompts (September 13, 2026)
 
 The Seattle run at `2026-09-13T19:50:59Z` failed the existing minimum-content
@@ -297,7 +341,8 @@ python3 -m pytest -q \
   tests/test_guides_config.py tests/test_guides_core.py tests/test_guides_dag.py \
   tests/test_guides_hook.py tests/test_guides_ssh.py tests/test_guides_install.py \
   tests/test_guides_citations.py tests/test_guides_event_evidence.py \
-  tests/test_guides_official_links.py tests/test_guides_prompts.py
+  tests/test_guides_official_links.py tests/test_guides_prompts.py \
+  tests/test_guides_force.py
 ```
 
 Producer tests cover payload identity, evidence validation, bounded selection and publication behavior separately. The orchestration tests exercise the actual paused Airflow graph and Pacific DST schedule, shared active-site selection, receipt isolation and restricted SSH command grammar without live source requests. Host installation and rendered preview remain deployment checks to perform on `wkr`.
