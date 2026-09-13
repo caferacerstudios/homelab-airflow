@@ -97,6 +97,60 @@ Review the Game Day Guide and Where to Watch sections on `/games/<gameId>` in pr
 
 Failed research or validation retains the previous good guide publication. Do not replace existing JSON with an empty fallback after a provider error. Preserve failed run evidence and read its log before retrying; a provider timeout does not prove the request was unbilled. Completed-run reuse and cached responses reduce duplicate requests but are not an external billing guarantee.
 
+### Practical venue listings and general guidance
+
+The original event-only rule was too restrictive for a local football guide:
+it removed sourced sports-bar listings, recurring tailgates, ordinary venue
+reminders and typical arrival schedules unless the source named the exact game.
+The September 13 update permits useful general information in those sections.
+A venue's current football-viewing page or an organizer's recurring program can
+support a listing with a direct source link; a separate announcement naming the
+opponent and date is not required for every venue.
+
+The existing `standing-policy` scope now covers this ordinary venue information
+as well as formal policies. It uses `eventDate: null`. Export uses the website's
+existing fields to label such entries without a frontend change:
+
+| Section | Reader-facing label |
+| --- | --- |
+| Alerts | `General guidance:` with informational severity |
+| Timeline | `Typical:` before the usual time or relative schedule |
+| Tailgates | `Recurring option:` before the name |
+| Watch parties | `Viewing option:` before the venue/listing name |
+
+The guide should help readers find useful options and follow the linked venue
+page for this week's details. A normal opening time is described as usual;
+missing times can say `Check venue for this game`. No repeated disclaimer is
+required for every sentence. A retrieved venue page can support a listing on
+its own; the guide still needs a useful summary, two items and two cited pages
+across the complete guide.
+
+Rows explicitly marked `event-specific` still need the correct calendar date.
+Exact-game broadcasts and Sounder transportation facts still require dated
+support. The prompt separates typical schedules from confirmed ceremonies,
+closures, special transport and specific one-off parties; it does not invent
+venues, times or promotions to fill a section. Existing source-link, schema and
+publication checks remain. The quoted omission warnings are per-item warnings,
+not proof that a whole run failed.
+
+Prompt version is `fan-zone-guides-v3-practical`; validation version is
+`guide-practical-listings-v1`. New prompts use a new evidence namespace; old
+research and accepted publications are retained. Earlier event-only recovery
+notes below describe the prior behavior. A completed force run still reuses its
+published result, so use a new redo ID to apply this prompt to all future games.
+
+Stop or finish the current host redo before pulling changed guide code. After
+review/merge and pulling the normal checkout, run:
+
+```bash
+python3 -B deployment/guides/refresh_guides.py \
+  --force-all --all-active --run-id redo-guides-practical-v1
+```
+
+This makes fresh research requests. The current guide publication stays until
+its replacement succeeds. Use the existing enabled website build to publish
+the resulting content; no website or DAG configuration changes are required.
+
 ### Force a complete refresh
 
 After merging and pulling the host command update, pause `sfz_game_guides` and

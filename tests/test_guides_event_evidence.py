@@ -1,4 +1,4 @@
-"""Unsupported event claims are omitted without weakening citation or publication checks."""
+"""General fan options survive while mismatched event claims remain excluded."""
 from copy import deepcopy
 from datetime import timedelta
 import importlib.util
@@ -46,11 +46,12 @@ class SupportedDraftTests(unittest.TestCase):
     def filter(self, draft, sources=fixtures.SOURCES, game=fixtures.GAME):
         return core.supported_draft(draft, sources, game, fixtures.SITE)
 
-    def test_second_alert_is_omitted_and_supported_fact_is_unchanged(self):
+    def test_wrong_date_alert_is_omitted_and_supported_fact_is_unchanged(self):
         draft = fixtures.draft_fixture()
-        draft['alerts'] = [alert(event=True), alert()]
+        draft['alerts'] = [alert(event=True), alert(event=True)]
+        draft['alerts'][1]['eventDate'] = '2026-09-21'
         original = deepcopy(draft)
-        with self.assertRaisesRegex(ValueError, r'alerts\[1\].*date-specific'):
+        with self.assertRaisesRegex(ValueError, r'alerts\[1\].*exact canonical game date'):
             core.make_records(draft, fixtures.SOURCES, fixtures.GAME, fixtures.SITE, fixtures.NOW)
 
         filtered, omitted = self.filter(draft)
@@ -67,8 +68,9 @@ class SupportedDraftTests(unittest.TestCase):
         filtered['alerts'][0]['sourceIds'].append('S2')
         self.assertEqual(draft, original, 'Filtering must return independent nested objects')
 
-    def test_generic_evidence_never_establishes_event_sections(self):
-        for field, row in event_sections().items():
+    def test_generic_evidence_never_establishes_broadcasts(self):
+        for field in ('localTv', 'streams', 'national'):
+            row = event_sections()[field]
             with self.subTest(field=field):
                 draft = fixtures.draft_fixture()
                 draft[field] = row if field == 'national' else [row]
@@ -80,6 +82,36 @@ class SupportedDraftTests(unittest.TestCase):
                                                     fixtures.SITE, fixtures.NOW)
                 self.assertEqual(watch['national'], 'TBD')
                 self.assertEqual(len(guide['stadiumTips']), 1)
+
+    def test_general_options_keep_links_and_clear_labels_without_relabeling_evidence(self):
+        draft = fixtures.draft_fixture()
+        labels = {'alerts': ('title', 'General guidance: '),
+                  'timeline': ('time', 'Typical: '),
+                  'tailgates': ('name', 'Recurring option: '),
+                  'watchParties': ('name', 'Viewing option: ')}
+        for field in labels:
+            draft[field] = [event_sections()[field]]
+        draft['alerts'][0]['severity'] = 'warning'
+        before = deepcopy(draft)
+        filtered, omitted = self.filter(draft)
+        self.assertEqual(omitted, [])
+        self.assertEqual(filtered, before)
+        guide, watch, evidence = core.make_records(filtered, fixtures.SOURCES, fixtures.GAME,
+                                                   fixtures.SITE, fixtures.NOW)
+        for field, (label, prefix) in labels.items():
+            with self.subTest(field=field):
+                self.assertEqual(len(guide[field]), 1)
+                self.assertEqual(guide[field][0][label], prefix + before[field][0][label])
+                self.assertEqual(guide[field][0]['sourceUrl'], fixtures.SOURCES[0]['url'])
+                for key, value in before[field][0].items():
+                    if key not in (*core.EVIDENCE, label):
+                        self.assertEqual(guide[field][0][key],
+                                         'info' if field == 'alerts' and key == 'severity' else value)
+                claim = next(row for row in evidence['claims'] if row['field'] == field)
+                self.assertEqual(claim['scope'], 'standing-policy')
+                self.assertIsNone(claim['eventDate'])
+        self.assertEqual(draft, before)
+        core.validate_record_pair(guide, watch, fixtures.GAME, fixtures.SITE)
 
     def test_sounder_and_wrong_date_broadcasts_are_omitted_without_inference(self):
         draft = fixtures.draft_fixture()
@@ -97,13 +129,15 @@ class SupportedDraftTests(unittest.TestCase):
         self.assertEqual(filtered['unknowns'], before['unknowns'])
 
     def test_wrong_date_events_and_dated_standing_policies_are_not_rewritten(self):
-        for field in ('summary', 'parking', 'stadiumTips'):
+        for field in ('summary', 'parking', 'stadiumTips', 'alerts', 'timeline', 'tailgates', 'watchParties'):
             for scope, date in (('event-specific', '2026-09-21'),
                                 ('standing-policy', fixtures.GAME['date'])):
                 with self.subTest(field=field, scope=scope):
                     draft = fixtures.draft_fixture()
                     if field == 'parking':
                         draft[field] = [fixtures.fact({'name': 'Stadium parking', 'details': 'Published parking policy.'})]
+                    elif field in ('alerts', 'timeline', 'tailgates', 'watchParties'):
+                        draft[field] = [event_sections()[field]]
                     row = draft[field] if field == 'summary' else draft[field][0]
                     row.update(scope=scope, eventDate=date)
                     before = deepcopy(draft)
@@ -118,6 +152,7 @@ class SupportedDraftTests(unittest.TestCase):
         for field, row in event_sections().items():
             row.update(scope='event-specific', eventDate=fixtures.GAME['date'])
             draft[field] = row if field == 'national' else [row]
+        draft['alerts'][0]['severity'] = 'warning'
         before = encoded(draft)
         expected = core.make_records(draft, fixtures.SOURCES, fixtures.GAME, fixtures.SITE, fixtures.NOW)
         filtered, omitted = self.filter(draft)
@@ -126,6 +161,10 @@ class SupportedDraftTests(unittest.TestCase):
         self.assertEqual(encoded(filtered), before)
         self.assertEqual(encoded(draft), before)
         self.assertEqual(encoded(actual), encoded(expected))
+        for field, label in (('alerts', 'title'), ('timeline', 'time'),
+                             ('tailgates', 'name'), ('watchParties', 'name')):
+            self.assertEqual(actual[0][field][0][label], draft[field][0][label])
+        self.assertEqual(actual[0]['alerts'][0]['severity'], 'warning')
 
     def test_bad_citations_or_prose_still_fail_even_for_an_unsupported_event(self):
         mutations = [
@@ -150,7 +189,8 @@ class SupportedDraftTests(unittest.TestCase):
 class EvidenceCacheTests(unittest.TestCase):
     def test_cached_strict_failure_recovers_with_zero_calls_and_original_evidence(self):
         draft = fixtures.draft_fixture()
-        draft['alerts'] = [alert(event=True), alert()]
+        draft['alerts'] = [alert(event=True), alert(event=True)]
+        draft['alerts'][1]['eventDate'] = '2026-09-21'
         calls = []
 
         def provider(payload, key):
@@ -166,7 +206,7 @@ class EvidenceCacheTests(unittest.TestCase):
             directory = Path(folder)
             # The prior release sent exactly these requests but rejected the complete draft.
             with patch.object(core, 'supported_draft', side_effect=lambda d, *_: (deepcopy(d), [])):
-                with self.assertRaisesRegex(ValueError, r'alerts\[1\].*date-specific'):
+                with self.assertRaisesRegex(ValueError, r'alerts\[1\].*exact canonical game date'):
                     generate(directory, provider)
             self.assertEqual(len(calls), 2)
             originals = {path.name: path.read_bytes() for path in directory.iterdir()
@@ -179,7 +219,7 @@ class EvidenceCacheTests(unittest.TestCase):
             guide, watch, evidence = generate(directory, no_api)
             self.assertEqual(len(guide['alerts']), 1)
             self.assertEqual(evidence['openaiRequestCount'], 0)
-            self.assertEqual(evidence['validationVersion'], 'guide-official-link-v1')
+            self.assertEqual(evidence['validationVersion'], 'guide-practical-listings-v1')
             self.assertEqual(evidence['writingVersion'], 'guide-citations-v2')
             validation = json.loads((directory / 'validation.json').read_text())
             self.assertEqual(validation['validationVersion'], evidence['validationVersion'])
@@ -204,7 +244,8 @@ class EvidencePublicationTests(unittest.TestCase):
         draft = fixtures.draft_fixture()
         draft['transportation'] = []
         draft['stadiumTips'] = []
-        draft['alerts'] = [alert()]
+        draft['alerts'] = [alert(event=True)]
+        draft['alerts'][0]['eventDate'] = '2026-09-21'
 
         def provider(payload, key):
             return (fixtures.response_fixture('Cited entry and transportation guidance.', True)
