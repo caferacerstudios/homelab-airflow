@@ -1,13 +1,16 @@
-# Daily articles controlled by active sites
+# Twice-weekly articles controlled by active sites
 
 The existing `sfz_daily_article` DAG reads the Airflow Variable
 `fan_zone_active_sites` once each time Airflow parses the DAG. It creates
 separate `generate_article_<slug>` and `save_run_receipt_<slug>` tasks for
 entries with `enabled: true`. Each pair is a separate branch in the graph.
-Display names include the city and team, such as `Generate article: Denver Broncos`. The existing daily 08:00 America/Los_Angeles schedule,
-`sfz_news_host` connection, retry policy and DAG pause state are preserved.
+Display names include the city and team, such as `Generate article: Denver Broncos`.
+The schedule is **Tuesday and Friday at 08:00 America/Los_Angeles**
+(`0 8 * * 2,5`, using `CronTriggerTimetable`). It stays at 8 a.m. through daylight
+saving changes. The existing DAG/task IDs, `sfz_news_host` connection, zero-retry
+policy, no-catch-up behavior and DAG pause state are preserved.
 
-| Team | Daily article output | Photo folder |
+| Team | Article output | Photo folder |
 | --- | --- | --- |
 | Seahawks | `/var/lib/sfz-news/current` | `/var/lib/sfz-news/photos/` |
 | Broncos | `/var/lib/boncosfz-news/current` | `/var/lib/boncosfz-news/photos/` |
@@ -16,6 +19,34 @@ Display names include the city and team, such as `Generate article: Denver Bronc
 The checked-in `config/active-sites.json` starts with both teams enabled.
 An existing Airflow Variable takes precedence and is preserved during installation.
 
+## Editorial editions
+
+| Publication day | Focus |
+| --- | --- |
+| Friday | Preview the next confirmed matchup: tactical keys, relevant verified personnel/injury updates and what to watch. |
+| Tuesday | Choose one strongest supported angle: team performance recap, major team headline or strategy breakdown. |
+
+The shared generator applies the edition brief to both research and writing.
+It uses the run's stable publication date in the team's configured timezone,
+not the worker's current weekday. Existing `prompts.article` preferences still
+apply within that brief; conflicting old daily/topic instructions do not override
+it. No live Variable migration is needed. All currently configured sites use
+Pacific time.
+
+Friday research verifies the next game rather than assuming a Sunday matchup;
+a completed Thursday game is not presented as upcoming. Bye weeks and offseason
+articles explain the context and use a sourced preparation/strategy angle if
+there is no meaningful confirmed matchup. Tuesday research verifies that a game
+has finished and can select a headline or strategy topic when there is no recent
+game. It should add analysis rather than duplicate the separate game recap DAG.
+
+This schedules two article opportunities per week **per enabled team**. Failed
+source or content validation can prevent publication. Explicit manual runs on
+other days remain available for an extra timely headline or analysis article.
+Accepted articles are still reused once per team/publication day, with unchanged
+URLs, history, photos and source requirements. Missing past days are not backfilled
+with current news. Each new article still uses at most two model requests.
+
 ## Configuration
 
 Open <http://localhost:8085/variables> and edit `fan_zone_active_sites`.
@@ -23,7 +54,7 @@ Its value is the plain JSON object in `config/active-sites.json`.
 Each team supplies `enabled`, `name`, `city`, `source_domains`,
 `prompts.article`, `news_snapshot_dir` and `news_photos_dir`.
 `abbreviation` and `balldontlie_team_id` are retained as site metadata;
-daily articles do not call BALLDONTLIE, so Denver's ID can remain null.
+articles do not call BALLDONTLIE, so Denver's ID can remain null.
 Optional `website_root` defaults to `/home/laurawkr/seahawksfanzone` for Seattle
 and `/home/laurawkr/templatefanzone` for other teams. Publication days default
 to the existing America/Los_Angeles timezone.
@@ -68,12 +99,12 @@ and their normal `metadata.json` captions/credits to the team's photo folder.
 An insufficient pool uses the existing illustration fallback. Selected image
 bytes remain in accepted snapshots if input photos are later removed.
 
-Daily articles and game recaps remain separate. This update changes no recap,
+Editorial articles and game recaps remain separate. This update changes no recap,
 NFL-data, ticket DAG or collector.
 
 ## Website build
 
-The daily DAG publishes articles; a website build imports them. It does not
+The article DAG publishes articles; a website build imports them. It does not
 build or deploy the website itself. The template site's root is
 `/home/laurawkr/templatefanzone`. The installer builds its Broncos preview.
 After future articles arrive, rebuild it using:
@@ -112,3 +143,35 @@ The website's `npm run test:template` and news snapshot tests cover team
 filtering, checksums and history preservation. They do not call paid APIs.
 The installer validates the update and commits/pushes only its listed files
 using the server's existing Git credentials.
+
+## Updating an existing installation
+
+After the PR is approved and merged, update the existing
+`/home/laurawkr/homelab-airflow` main checkout through the normal preserving Git
+workflow. Both the mounted DAG and host `deployment/news` runner need the new
+revision. Routine mounted code changes do not need new keys, a platform rebuild,
+or the original bootstrap installer. Validate DAG import errors and confirm the
+next run is Tuesday or Friday at 08:00 Pacific. Existing accepted articles remain
+untouched, and the next normal website build imports successful new snapshots.
+
+A partially completed, unaccepted attempt from the old prompts may have cached
+responses that do not match the new editorial settings. The existing cache guard
+will stop instead of silently reusing them or making replacement paid requests.
+Inspect that attempt using the recovery procedure in `daily-news-airflow.md`;
+never delete an accepted `article.json` to regenerate it.
+
+## Configuration edits blocking generation
+
+`Commit or resolve edits to the team/news configuration before generation` means
+SSH succeeded, but the configured website checkout has uncommitted changes under
+`template-tools`, `src/lib/news-team.mjs` or `config/active-sites.json`. The error
+now includes the checkout and exact changed paths, including untracked files.
+The related news-source guard likewise identifies changed exporter/importer or
+authored-news files. Inspect `git status --short` and `git diff` in the named
+checkout, review staged changes with `git diff --cached`, and preserve/review
+untracked files before deciding how to commit or resolve them. Do not blindly
+reset, stash or auto-commit those edits.
+
+Normal `.team-build` and `dist` output is outside these guards. The supplied
+September 17 log does not identify the dirty files, so this diagnostic improvement
+does not itself resolve the host edits or prove a successful live run.

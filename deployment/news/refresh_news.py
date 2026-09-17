@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a daily news generation or inspect the installed setup without source calls."""
+"""Generate an article or inspect the installed setup without source calls."""
 import argparse
 from datetime import datetime, timezone
 import json
