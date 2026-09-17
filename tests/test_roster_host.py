@@ -241,6 +241,40 @@ class HostTests(unittest.TestCase):
             runner.verify_payloads(work / 'candidate', self.site)
 
 
+class CollectorProcessTests(unittest.TestCase):
+    def test_failure_surfaces_bounded_readable_tail_and_retains_full_log(self):
+        output = ('Earlier collector output\n' * 500
+                  + '\x1b[31mRoster collection failed:\x1b[0m official roster is empty\x00\u202e\n')
+        process = Mock(returncode=1)
+        process.communicate.return_value = (output, None)
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            with patch.object(runner, 'command', return_value=''), \
+                    patch.object(runner.subprocess, 'Popen', return_value=process):
+                with self.assertRaises(RuntimeError) as error:
+                    runner.run_node(work, 'a' * 64, 'seahawks')
+            message = str(error.exception)
+            self.assertIn('Roster collector exited 1:', message)
+            self.assertIn('Roster collection failed: official roster is empty', message)
+            self.assertIn(str(work / 'collector.log'), message)
+            self.assertTrue(message.isprintable())
+            self.assertNotIn('[31m', message)
+            self.assertLessEqual(len(message), runner.MAX_COLLECTOR_ERROR_CHARS + len(str(work / 'collector.log')) + 50)
+            self.assertEqual((work / 'collector.log').read_text(), output)
+            process.communicate.assert_called_once_with(timeout=480)
+
+    def test_failure_without_output_still_reports_exit_and_log_path(self):
+        process = Mock(returncode=125)
+        process.communicate.return_value = ('', None)
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            with patch.object(runner, 'command', return_value=''), \
+                    patch.object(runner.subprocess, 'Popen', return_value=process):
+                with self.assertRaisesRegex(RuntimeError, 'exited 125: no diagnostic output'):
+                    runner.run_node(work, 'a' * 64, 'seahawks')
+            self.assertEqual((work / 'collector.log').read_text(), '')
+
+
 class RegistryAndInstallerTests(unittest.TestCase):
     def test_derived_destinations_keep_existing_spelling_and_no_new_config_fields(self):
         configured = sites()
@@ -367,8 +401,9 @@ class ActualAirflowInstallerTests(unittest.TestCase):
         from airflow.dag_processing.dagbag import BundleDagBag
         from airflow.sdk import Variable
         entry = module('roster_installer_protocol_test', ROOT / 'deployment/roster/ssh_entrypoint.py')
+        enabled_sites = [site for site in sites().values() if site['enabled']]
         with patch.object(installer, 'run') as call:
-            installer.verify_airflow(list(sites().values()))
+            installer.verify_airflow(enabled_sites)
             code = call.call_args.args[0][-1]
         collected = []
         hook = Mock()
@@ -388,10 +423,10 @@ class ActualAirflowInstallerTests(unittest.TestCase):
         with patch('airflow.dag_processing.dagbag.BundleDagBag', side_effect=local_bag), \
                 patch('airflow.providers.ssh.hooks.ssh.SSHHook', return_value=hook) as hook_type, \
                 patch.object(Variable, 'get', return_value=sites()), \
-                patch.object(sys, 'stdin', io.StringIO(json.dumps(list(sites().values())))), redirect_stdout(io.StringIO()):
+                patch.object(sys, 'stdin', io.StringIO(json.dumps(enabled_sites))), redirect_stdout(io.StringIO()):
             exec(code, {})
         hook_type.assert_called_once_with(ssh_conn_id='sfz_roster_host', cmd_timeout=120)
-        self.assertEqual(set(collected), set(sites()))
+        self.assertEqual(set(collected), {site['slug'] for site in enabled_sites})
 
     def test_connection_failure_suppresses_private_key(self):
         sensitive = 'PRIVATE-KEY-TEST-CONTENT-DO-NOT-PRINT'

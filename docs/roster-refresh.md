@@ -32,7 +32,7 @@ balldontlie requests are added by the roster collector.
 | Display name | Includes the configured city and team name |
 | Concurrency | One active run and one active task in this DAG |
 | Pool | `default_pool`; existing provider pool is unchanged |
-| Retries / catchup | 0 / false |
+| Retries / catchup | One refresh retry after two minutes; receipt task 0 / false |
 | Initial state | Paused on first creation |
 | SSH connection | New, dedicated `sfz_roster_host` |
 | Source process | Cached `node:22-bookworm`; eight-minute collector limit |
@@ -97,8 +97,13 @@ separate from a current practice/game-status report.
 own meaning. These pages are not a permanent feed contract: a club changing its
 HTML may require a parser adjustment. Failed roster or transaction validation
 preserves the previous snapshot. An unavailable injury report can publish with
-an explicit reason and the earlier archive. The DAG supplies official reports,
-not medical conclusions.
+an explicit reason and the earlier archive. This includes an injury-page HTTP or
+network failure, missing club table, or an unrecognized report format/status.
+The earlier injury `asOf` stays unchanged, current report keys are cleared, and
+the receipt records `injuryAvailability: unavailable` and its reason. A verified
+NFL snapshot from an older season likewise makes injury context unavailable;
+it does not block the current official roster or transaction log. The DAG supplies
+official reports, not medical conclusions.
 
 ## Publication and website contract
 
@@ -194,7 +199,9 @@ publish process; installing this DAG alone does not deploy it.
 ## Operations and rollback boundary
 
 - Source/parse error: inspect the selected team's `collector.log` and official
-  page; the last good publication remains selected. Do not label old data fresh.
+  page; the Airflow task also shows a bounded tail of the collector error. A failed
+  refresh retries once after two minutes; if it still fails, the last good
+  publication remains selected. Do not label old data fresh.
 - Injury unavailable: examine `availabilityReason`, report period and NFL schedule
   context. Roster and dated transactions may still be valid.
 - Wrong path/team/manifest: correct the configuration or source inconsistency;
@@ -204,6 +211,30 @@ publish process; installing this DAG alone does not deploy it.
 - Revert code through Git if necessary. Reverting the importer/DAG does not require
   deleting roster snapshots, credentials or history. Do not use old EventSpy or
   five-team handoff installers to undo this additive pipeline.
+
+### Apply the roster resilience update
+
+After merging the fix, update the existing host checkout and trigger a new run:
+
+```bash
+cd /home/laurawkr/homelab-airflow
+git pull --ff-only origin main
+docker compose exec -T airflow-scheduler airflow dags trigger sfz_roster_refresh
+```
+
+Allow the DAG processor to refresh the mounted DAG before triggering if the new
+retry setting is not visible yet. The host collector runs directly from this
+checkout, so no installer, image rebuild, or stack restart is required. Keep local
+Compose/LAN access settings as they are. The website still imports the completed
+snapshot on its next normal build.
+
+The September 16 task log confirms successful SSH authentication and a collector
+exit, but hides the collector's underlying error. A September 17 source review
+reproduced an injury-only failure for Minnesota: its official injury page returned
+HTTP 200 with only the opponent's club table. Seattle's current sources parsed
+successfully at review time; its original host log is needed to identify that
+specific failure. Regression tests cover these unavailable-report cases without
+weakening required roster/transaction or publication checks.
 
 ## Validation and reference files
 
