@@ -1,4 +1,4 @@
-"""Show a separate daily-article task for each configured, enabled website."""
+"""Generate Tuesday analysis and Friday matchup articles for each enabled website."""
 from datetime import timedelta
 import pendulum
 from airflow.sdk import dag, task
@@ -7,11 +7,15 @@ from airflow.timetables.trigger import CronTriggerTimetable
 
 @dag(
     dag_id="sfz_daily_article",
-    schedule=CronTriggerTimetable("0 8 * * *", timezone="America/Los_Angeles"),
+    schedule=CronTriggerTimetable("0 8 * * 2,5", timezone="America/Los_Angeles"),
     start_date=pendulum.datetime(2026, 1, 1, tz="America/Los_Angeles"),
     catchup=False, max_active_runs=1, max_active_tasks=1, is_paused_upon_creation=True,
     default_args={"owner": "laura", "retries": 0}, tags=["fan-zone", "news", "openai"],
-    doc_md="""Read fan_zone_active_sites when Airflow parses this DAG and create
+    doc_md="""Generate articles Tuesday and Friday at 08:00 America/Los_Angeles.
+    Friday focuses on the upcoming matchup; Tuesday covers team performance,
+    a major headline, or a strategy breakdown. Keep the existing sfz_daily_article
+    DAG ID and team task IDs so run history remains available.
+    Read fan_zone_active_sites when Airflow parses this DAG and create
     separately named article tasks for enabled sites. UI Variable edits take
     effect on the next DAG parse. Each team has its own prompt, photo directory and persistent
     snapshot on wkr. Repeated runs reuse accepted content. The next website build

@@ -1,6 +1,8 @@
-# Daily Seahawks articles — installation and operations
+# Fan Zone articles — installation and operations
 
-This package adds `sfz_daily_article` to the existing Airflow 3.3.1 installation. Default schedule: 08:00 in America/Los_Angeles, no catch-up, no automatic retries. It generates one accepted article per Seattle day using two bounded OpenAI Responses requests: live official-site research and structured article writing. The default model is `gpt-5.4-mini`, matching the existing player-profile model family. No BALLDONTLIE calls are added. OpenAI account/model access is checked by the first live run, not by local fixture tests.
+This package adds `sfz_daily_article` to the existing Airflow 3.3.1 installation. Schedule: Tuesday and Friday at 08:00 in America/Los_Angeles (`0 8 * * 2,5`), no catch-up, no automatic retries. It schedules two articles per week per enabled team, with at most one accepted article per team/publication day using two bounded OpenAI Responses requests: live official-site research and structured article writing. The default model is `gpt-5.4-mini`, matching the existing player-profile model family. No BALLDONTLIE calls are added. OpenAI account/model access is checked by the first live run, not by local fixture tests.
+
+Friday articles focus on the next confirmed matchup. Tuesday articles choose a team performance recap, major headline or strategy breakdown. The shared brief supplements each team's `prompts.article` in both research and writing; see [modular article operations](modular-news.md) for active-site configuration, edge cases and updating an existing installation. The `sfz_daily_article` ID is retained for Airflow history and existing integrations. Explicit manual runs can still create an extra article on other days. The installation steps below describe the original bootstrap, not a required reinstall for this schedule change.
 
 The website imports `/var/lib/sfz-news/current` at normal prebuild. `/news` selects the newest publication as lead and the following six as Latest. Authored articles remain in `src/lib/news.ts`. Generated articles are imported into `src/data/news/generated-articles.json`. Old articles retain their detail routes, sources and images. Existing category/archive/RSS routes remain.
 
@@ -12,7 +14,7 @@ Open the comparison link it prints, review the changes and merge that PR into ma
 
 Run `python3 setup-sfz-news.py install`. It updates the production main checkout with a fast-forward pull, adds only this package's new Airflow files, creates `/var/lib/sfz-news` and its photo/state directories, and installs a dedicated restricted SSH connection using the existing working installer pattern. It asks sudo only to create the runtime root if needed. Run the overall installer as laurawkr, not root. It retains existing keys/settings on repeat installs and rejects a different implementation already occupying its new filenames. It makes no OpenAI requests and leaves a newly created DAG paused.
 
-Add photos, then run `python3 setup-sfz-news.py run` for the first real article. Inspect the returned manifest and article. Run a normal website build (`cd ~/seahawksfanzone` then `npm run build`) to import it and publish HTML through the current host setup. Finally run `python3 setup-sfz-news.py enable` to unpause the daily schedule. These are separate explicit actions: setup does not secretly start paid writing or publish HTML.
+Add photos, then run `python3 setup-sfz-news.py run` for the first real article. Inspect the returned manifest and article. Run a normal website build (`cd ~/seahawksfanzone` then `npm run build`) to import it and publish HTML through the current host setup. Finally run `python3 setup-sfz-news.py enable` to unpause the Tuesday/Friday schedule. These are separate explicit actions: setup does not secretly start paid writing or publish HTML.
 
 ## Photos
 
@@ -34,7 +36,7 @@ Optional `/var/lib/sfz-news/photos/metadata.json`:
 
 Without metadata, the caption and alt text describe a generic photo from the site's collection. The automatic writer does not infer the photo's subject. Existing custom editorial illustrations are retained. Generated stories use an accurate automatic-generation byline explanation; existing authored byline wording remains.
 
-## Daily operation
+## Routine operation
 
 - `python3 ~/setup-sfz-news.py status` lists recent Airflow runs and the accepted manifest.
 - `python3 ~/setup-sfz-news.py run` triggers one manual run. A day with an accepted article makes no additional writing calls.
@@ -68,7 +70,7 @@ To correct accepted prose, pause future runs, back up that day's `article.json`,
 
 For rollback, pause `sfz_daily_article` and revert the website feature PR through the normal Git workflow. Keep the runtime directory and all image/history files. A previous release can be selected for investigation, but the importer intentionally refuses to erase locally known article history using a shorter snapshot.
 
-Airflow generation and public HTML are separate. A successful daily DAG run becomes visible at the next successful normal build. This feature does not add another deployment timer or fix unrelated build failures. The first live API response, DAG execution and production rendering must be checked on wkr.
+Airflow generation and public HTML are separate. A successful article DAG run becomes visible at the next successful normal build. This feature does not add another deployment timer or fix unrelated build failures. The first live API response, DAG execution and production rendering must be checked on wkr.
 
 ## Verification and API references
 

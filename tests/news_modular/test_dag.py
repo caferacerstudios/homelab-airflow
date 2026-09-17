@@ -10,6 +10,8 @@ import pendulum
 from airflow.dag_processing.dagbag import BundleDagBag
 from airflow.sdk import Variable
 from airflow.serialization.serialized_objects import DagSerialization
+from airflow.timetables.base import TimeRestriction
+from airflow.timetables.trigger import CronTriggerTimetable
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "dags"))
@@ -90,15 +92,69 @@ class DailyNewsDagTests(unittest.TestCase):
         self.assertEqual(restored.get_task("save_run_receipt_broncos").upstream_task_ids,
                          {"generate_article_broncos"})
 
-    def test_schedule_remains_daily_eight_pacific_across_dst(self):
+    def scheduled_runs(self, dag, start, count):
+        # Traverse a fixed date range without depending on the test machine's clock.
+        restriction = TimeRestriction(earliest=start, latest=None, catchup=True)
+        previous = None
+        for _ in range(count):
+            info = dag.timetable.next_dagrun_info(
+                last_automated_data_interval=previous, restriction=restriction,
+            )
+            self.assertIsNotNone(info)
+            yield info
+            previous = info.data_interval
+
+    def test_schedule_runs_only_tuesday_and_friday_at_eight_pacific(self):
         dag = self.load()
+        self.assertIsInstance(dag.timetable, CronTriggerTimetable)
         self.assertFalse(dag.catchup)
         self.assertEqual(dag.max_active_runs, 1)
         self.assertEqual(dag.max_active_tasks, 1)
-        for month, day in [(9, 10), (3, 8), (11, 1)]:
-            start = pendulum.datetime(2026, month, day, tz="America/Los_Angeles")
-            next_run = dag.timetable._get_next(start)
-            self.assertEqual(next_run.in_timezone("America/Los_Angeles").strftime("%H:%M"), "08:00")
+        runs = list(self.scheduled_runs(
+            dag, pendulum.datetime(2026, 9, 17, tz="America/Los_Angeles"), 6,
+        ))
+        self.assertEqual(
+            [run.run_after.in_timezone("America/Los_Angeles").strftime("%Y-%m-%d %a %H:%M") for run in runs],
+            ["2026-09-18 Fri 08:00", "2026-09-22 Tue 08:00", "2026-09-25 Fri 08:00",
+             "2026-09-29 Tue 08:00", "2026-10-02 Fri 08:00", "2026-10-06 Tue 08:00"],
+        )
+
+    def test_schedule_keeps_eight_pacific_across_both_dst_changes(self):
+        dag = self.load()
+        cases = [
+            ((2026, 3, 5), ["2026-03-06 16:00", "2026-03-10 15:00", "2026-03-13 15:00"]),
+            ((2026, 10, 29), ["2026-10-30 15:00", "2026-11-03 16:00", "2026-11-06 16:00"]),
+        ]
+        for start, expected_utc in cases:
+            with self.subTest(start=start):
+                runs = list(self.scheduled_runs(
+                    dag, pendulum.datetime(*start, tz="America/Los_Angeles"), 3,
+                ))
+                self.assertEqual(
+                    [run.run_after.in_timezone("UTC").strftime("%Y-%m-%d %H:%M") for run in runs],
+                    expected_utc,
+                )
+                self.assertEqual(
+                    [run.run_after.in_timezone("America/Los_Angeles").strftime("%a %H:%M") for run in runs],
+                    ["Fri 08:00", "Tue 08:00", "Fri 08:00"],
+                )
+
+    def test_trigger_logical_date_preserves_the_publication_day_when_delayed(self):
+        from sfz_news_hook import publication_day
+
+        dag = self.load()
+        runs = self.scheduled_runs(
+            dag, pendulum.datetime(2026, 9, 17, tz="America/Los_Angeles"), 2,
+        )
+        for info, expected_day in zip(runs, ("2026-09-18", "2026-09-22")):
+            with self.subTest(publication_day=expected_day):
+                self.assertEqual(info.logical_date, info.run_after)
+                self.assertEqual(info.data_interval.start, info.data_interval.end)
+                delayed_start = info.run_after.add(days=1)
+                context = {"logical_date": info.logical_date,
+                           "dag_run": type("Run", (), {"start_date": delayed_start})()}
+                for site in self.sites.values():
+                    self.assertEqual(publication_day(context, site["timezone"]), expected_day)
 
     def test_each_task_uses_its_own_site_and_existing_news_hook(self):
         dag = self.load()
