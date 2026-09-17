@@ -279,16 +279,28 @@ export async function collectTeam(request, { fetchImpl = globalThis.fetch } = {}
   // Transactions are published by calendar year, including January moves during
   // the prior NFL season. Existing archives retain earlier calendar years.
   const transactionYear = clock.getUTCFullYear();
-  if (request.nfl?.schedule && Number(request.nfl.schedule.season) !== season) throw new Error('NFL source is from another football season');
   validatePrevious(request.previous, site);
   const team = { ...configured, rosterUrl: `https://${configured.domain}/team/players-roster/`, injuriesUrl: `https://${configured.domain}/team/injury-report/`, transactionsUrl: `https://${configured.domain}/team/transactions/${transactionYear}` };
   let requestCount = 0;
   const countedFetch = (...args) => { requestCount++; return fetchImpl(...args); };
-  const [rosterHtml, injuryHtml, transactionHtml] = await Promise.all([team.rosterUrl, team.injuriesUrl, team.transactionsUrl].map(url => fetchPage(url, team, countedFetch)));
+  // Injury reports are optional: clubs can remove or replace the report between
+  // game weeks. Keep that failure separate from current roster/transaction data.
+  const [rosterHtml, injurySource, transactionHtml] = await Promise.all([
+    fetchPage(team.rosterUrl, team, countedFetch),
+    fetchPage(team.injuriesUrl, team, countedFetch).then(html => ({ html }), error => ({ error })),
+    fetchPage(team.transactionsUrl, team, countedFetch),
+  ]);
   const context = { site, team, now: clock.toISOString(), season, transactionYear, nfl: request.nfl };
   const roster = reconcileRoster(request.previous?.roster, parseRoster(rosterHtml, team), context);
   const transactions = reconcileTransactions(request.previous?.transactions, parseTransactions(transactionHtml, { ...context, roster }), context);
-  const parsed = parseInjuries(injuryHtml, { ...context, roster, previousInjuries: request.previous?.injuries });
+  let parsed;
+  try {
+    if (injurySource.error) throw injurySource.error;
+    parsed = parseInjuries(injurySource.html, { ...context, roster, previousInjuries: request.previous?.injuries });
+  } catch (error) {
+    parsed = { records: [], available: false, period: null,
+      reason: `Official injury report unavailable: ${clean(error.message).slice(0, 500)}` };
+  }
   const injuries = reconcileInjuries(request.previous?.injuries, parsed, context);
   const report = { status: 'success', team: site.slug, runId: request.runId, updatedAt: context.now, season, transactionYear, requestCount,
     counts: { currentRoster: roster.players.filter(row => !departed.has(row.status)).length, rosterHistory: roster.players.length, transactions: transactions.records.length, injuryObservations: injuries.records.length },

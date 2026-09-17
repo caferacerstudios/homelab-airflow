@@ -134,6 +134,74 @@ test('missing injury table and unknown status fail rather than falsely clearing 
   const html=`${title(ctx.team)}<option value="/team/injury-report/week/REG-1" selected>1</option>${injuryTable(ctx.team.name,'Test Player','test-player',['UNKNOWN','FP','FP','(-)'])}`;
   assert.throws(()=>parseInjuries(html,{...ctx,roster:{players:[]}}),/practice status/);
 });
+test('unavailable injury sources preserve history while publishing fresh roster and transactions',async()=>{
+  const team=teamFor('seahawks');
+  const failures = [
+    { name:'missing page', fetch:async()=>({ok:false,status:404}), reason:/HTTP 404/ },
+    { name:'network error', fetch:async()=>{throw new Error('fetch failed');}, reason:/fetch failed/ },
+    { name:'missing table', html:title(team), reason:/exactly one/ },
+    { name:'unrecognized status', html:injuryHtml(team).replaceAll('>LP<','>UNKNOWN<'), reason:/practice status/ },
+    { name:'opponent table only', html:title(team)+injuryTable('Opponent Team'), reason:/exactly one/ },
+    { name:'unsafe redirect', fetch:async()=>({status:302,headers:{get:()=> 'https://example.com/untrusted'}}), reason:/redirect left/ },
+  ];
+  for (const failure of failures) {
+    const req=request('seahawks');
+    req.previous.injuries={schemaVersion:2,team:'seahawks',asOf:'2026-09-08T12:00:00Z',
+      currentReportKeys:['2026-09-08:old:Game Status'],sourceReportFingerprint:'earlier-report',sourceReportSeason:2026,
+      records:[{date:'2026-09-08T12:00:00Z',playerId:'old',reportType:'Game Status',status:'Out'}]};
+    const before=JSON.stringify(req);
+    const valid=fetcher(team);
+    const result=await collectTeam(req,{fetchImpl:url=>url===team.injuriesUrl
+      ? failure.fetch?.() ?? Promise.resolve({ok:true,status:200,text:async()=>failure.html}) : valid(url)});
+    assert.equal(result.roster.asOf,now,failure.name);
+    assert.equal(result.transactions.asOf,now,failure.name);
+    assert.equal(result.transactions.records.length,1,failure.name);
+    assert.equal(result.report.status,'success',failure.name);
+    assert.equal(result.injuries.availability,'unavailable',failure.name);
+    assert.match(result.report.injuryReason,failure.reason,failure.name);
+    assert.equal(result.injuries.asOf,req.previous.injuries.asOf,failure.name);
+    assert.equal(result.injuries.sourceCheckedAt,now,failure.name);
+    assert.equal(result.injuries.sourceReportFingerprint,'earlier-report',failure.name);
+    assert.deepEqual(result.injuries.currentReportKeys,[],failure.name);
+    assert.deepEqual(result.injuries.records,req.previous.injuries.records,failure.name);
+    assert.equal(JSON.stringify(req),before,failure.name);
+  }
+});
+test('first refresh can publish without injuries and a later valid report recovers',async()=>{
+  const req=request('seahawks'),team=teamFor('seahawks');
+  const first=await collectTeam(req,{fetchImpl:fetcher(team,{[team.injuriesUrl]:title(team)})});
+  assert.equal(first.injuries.asOf,null);
+  assert.equal(first.injuries.availability,'unavailable');
+  assert.deepEqual(first.injuries.records,[]);
+  req.previous={roster:first.roster,injuries:first.injuries,transactions:first.transactions};
+  const recovered=await collectTeam(req,{fetchImpl:fetcher(team)});
+  assert.equal(recovered.injuries.availability,'available');
+  assert.equal(recovered.injuries.asOf,now);
+  assert.equal(recovered.injuries.records.length,3);
+  assert.equal(recovered.transactions.records.length,1);
+});
+test('an older optional NFL season does not block current official roster or transactions',async()=>{
+  const req=request('seahawks');
+  req.nfl.schedule.season=2025;
+  const result=await collectTeam(req,{fetchImpl:fetcher(teamFor('seahawks'))});
+  assert.equal(result.roster.season,2026);
+  assert.equal(result.transactions.records.length,1);
+  assert.equal(result.report.status,'success');
+  assert.equal(result.injuries.availability,'unavailable');
+  assert.match(result.injuries.availabilityReason,/No verified regular-season schedule/);
+  assert.equal(result.injuries.asOf,null);
+  assert.deepEqual(result.injuries.records,[]);
+});
+test('required roster and transaction errors still reject an incomplete publication',async()=>{
+  const team=teamFor('seahawks');
+  for (const source of [team.rosterUrl,team.transactionsUrl]) {
+    const req=request('seahawks'),before=JSON.stringify(req),valid=fetcher(team);
+    await assert.rejects(collectTeam(req,{fetchImpl:url=>url===source
+      ? Promise.resolve({ok:false,status:503}) : valid(url)}),/HTTP 503/);
+    await assert.rejects(collectTeam(req,{fetchImpl:fetcher(team,{[source]:title(team)})}));
+    assert.equal(JSON.stringify(req),before);
+  }
+});
 test('HTTP or malformed source failure rejects the entire candidate without mutating previous data',async()=>{
   const req=request('seahawks'),copy=JSON.stringify(req);
   await assert.rejects(collectTeam(req,{fetchImpl:async()=>({ok:false,status:503})}),/HTTP 503/);

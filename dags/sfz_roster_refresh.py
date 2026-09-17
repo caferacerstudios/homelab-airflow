@@ -32,7 +32,7 @@ def sfz_roster_refresh():
     from fan_zone_tasks import active_sites
     sites = active_sites()
 
-    @task(execution_timeout=timedelta(minutes=12))
+    @task(execution_timeout=timedelta(minutes=12), retries=1, retry_delay=timedelta(minutes=2))
     def refresh_roster(site):
         from airflow.sdk import get_current_context
         from sfz_roster_hook import RosterRefreshHook

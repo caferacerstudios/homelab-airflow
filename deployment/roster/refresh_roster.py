@@ -32,6 +32,7 @@ IMAGE = 'node:22-bookworm'
 FILES = ('roster.json', 'injuries.json', 'transactions.json')
 SOURCE_FILES = ('collector.mjs', 'teams.json', 'refresh_roster.py', 'ssh_entrypoint.py')
 MAX_JSON_BYTES = 16 * 1024 * 1024
+MAX_COLLECTOR_ERROR_CHARS = 2000
 
 
 def load_object(path: Path) -> dict:
@@ -291,6 +292,15 @@ def nfl_payloads(site: dict) -> dict | None:
     return {'schedule': schedule, 'players': players}
 
 
+def collector_error_summary(output: str) -> str:
+    """Keep the useful log tail visible in Airflow without flooding its log."""
+    prefix = '... ' if len(output) > MAX_COLLECTOR_ERROR_CHARS else ''
+    tail = output[-(MAX_COLLECTOR_ERROR_CHARS - len(prefix)):]
+    tail = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', tail)
+    tail = ''.join(char if char.isprintable() else ' ' for char in tail)
+    return prefix + ' '.join(tail.split()) if tail.strip() else 'no diagnostic output'
+
+
 def run_node(work: Path, run_key: str, slug: str) -> None:
     label = 'com.caferacerstudios.pipeline=sfz-roster-' + slug
     if command(['docker', 'ps', '-q', '--filter', 'label=' + label], timeout=30):
@@ -318,7 +328,8 @@ def run_node(work: Path, run_key: str, slug: str) -> None:
         raise
     (work / 'collector.log').write_text(output)
     if process.returncode:
-        raise RuntimeError(f'Roster collector exited {process.returncode}; inspect {work / "collector.log"}')
+        raise RuntimeError(f'Roster collector exited {process.returncode}: {collector_error_summary(output)}; '
+                           f'full log: {work / "collector.log"}')
 
 
 def sync_directory(path: Path) -> None:

@@ -35,7 +35,9 @@ class RosterDagTests(unittest.TestCase):
             self.assertIn(site["city"] + " " + site["name"], task.task_display_name)
             self.assertEqual(task.downstream_task_ids, {"save_run_receipt_" + slug})
             self.assertEqual(task.pool, "default_pool")
-            self.assertEqual(task.retries, 0)
+            self.assertEqual(task.retries, 1)
+            self.assertEqual(task.retry_delay.total_seconds(), 120)
+            self.assertEqual(dag.get_task("save_run_receipt_" + slug).retries, 0)
         disabled = deepcopy(sites)
         disabled["broncos"]["enabled"] = False
         dag = self.load(disabled)
